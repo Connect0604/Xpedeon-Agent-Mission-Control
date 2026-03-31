@@ -1586,6 +1586,80 @@ body::before {
 /* ── Badge Danger ────────────────────────────────────────────────── */
 .badge-danger { background: var(--c-error-bg); border: 1px solid var(--c-error-border); color: var(--c-error); }
 
+/* ================================================================
+   PHASE 4 — Dashboard + Logs enhancements
+   ================================================================ */
+
+/* ── Dashboard Alert Banner ─────────────────────────────────────── */
+.dash-alert {
+    display: flex; align-items: center; gap: var(--s3);
+    padding: var(--s3) var(--s4); border-radius: var(--r2);
+    background: var(--c-warning-bg); border: 1px solid var(--c-warning-border);
+    color: var(--c-warning); margin-bottom: var(--s4);
+    transition: opacity .15s;
+}
+.dash-alert:hover { opacity: .85; }
+
+/* ── Stat Mini Card ──────────────────────────────────────────────── */
+.stat-mini {
+    display: flex; align-items: center; gap: var(--s3);
+}
+.stat-mini__icon {
+    width: 36px; height: 36px; border-radius: var(--r2);
+    background: var(--accent-glow); border: 1px solid var(--accent-border);
+    color: var(--accent); display: flex; align-items: center; justify-content: center;
+    font-size: 1rem; flex-shrink: 0;
+}
+.stat-mini__value { font-size: 1.1rem; font-weight: 700; color: var(--txt-primary); font-family: var(--font-mono); }
+.stat-mini__label { font-size: .72rem; color: var(--txt-muted); }
+
+/* ── Fleet Stats Row ─────────────────────────────────────────────── */
+.fleet-stats-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding-top: var(--s4); border-top: 1px solid var(--border-faint);
+}
+.fleet-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+
+/* ── Quick Actions ───────────────────────────────────────────────── */
+.quick-actions {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--s2);
+}
+.quick-action {
+    display: flex; flex-direction: column; align-items: center; gap: var(--s2);
+    padding: var(--s4); border-radius: var(--r2);
+    background: var(--bg-panel); border: 1px solid var(--border-subtle);
+    color: var(--txt-secondary); cursor: pointer; font-size: .8rem;
+    transition: border-color .15s, color .15s, background .15s;
+}
+.quick-action i { font-size: 1.4rem; color: var(--accent); }
+.quick-action:hover { border-color: var(--accent-border); background: var(--accent-glow); color: var(--txt-primary); }
+
+/* ── Log Stats Bar ───────────────────────────────────────────────── */
+.log-stats-bar {
+    display: flex; align-items: center; gap: var(--s2);
+    margin-bottom: var(--s3); flex-wrap: wrap;
+}
+.log-stat-pill {
+    display: flex; align-items: center; gap: var(--s1);
+    padding: 3px 10px; border-radius: 12px; font-size: .75rem;
+    cursor: pointer; transition: opacity .15s;
+    background: var(--bg-elevated); border: 1px solid var(--border-faint);
+    color: var(--txt-secondary);
+}
+.log-stat-pill.info    { border-color: rgba(100,116,139,.25); }
+.log-stat-pill.success { border-color: var(--c-active-border); color: var(--c-active); }
+.log-stat-pill.warning { border-color: var(--c-warning-border); color: var(--c-warning); }
+.log-stat-pill.error,
+.log-stat-pill.critical { border-color: var(--c-error-border); color: var(--c-error); }
+.log-stat-pill:hover { opacity: .75; }
+
+/* ── type-tag custom ─────────────────────────────────────────────── */
+.type-tag.custom {
+    background: rgba(168,162,158,.12);
+    color: #a8a29e;
+    border-color: rgba(168,162,158,.25);
+}
+
 /* ── mt helpers ──────────────────────────────────────────────────── */
 .mt-2 { margin-top: var(--s2); }
 .mt-4 { margin-top: var(--s4); }
