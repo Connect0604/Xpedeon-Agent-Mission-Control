@@ -1,0 +1,98 @@
+@inject MockDataService DataService
+@inject NavigationManager Nav
+@implements IDisposable
+@rendermode InteractiveServer
+
+<nav class="sidebar">
+    <!-- Brand -->
+    <div class="sidebar-brand">
+        <div class="brand-icon">
+            <i class="bi bi-broadcast-pin"></i>
+        </div>
+        <div class="brand-text">
+            <span class="brand-name">Xpedeon</span>
+            <span class="brand-sub">Mission Control</span>
+        </div>
+    </div>
+
+    <!-- Navigation -->
+    <div class="sidebar-nav">
+        <div class="nav-section">Overview</div>
+
+        <NavLink class="nav-item" href="/" Match="NavLinkMatch.All">
+            <i class="bi bi-grid-1x2"></i>
+            Dashboard
+        </NavLink>
+
+        <div class="nav-section">Operations</div>
+
+        <NavLink class="nav-item" href="/agents">
+            <i class="bi bi-robot"></i>
+            Agents
+            @if (errorCount > 0)
+            {
+                <span class="nav-badge error">@errorCount</span>
+            }
+        </NavLink>
+
+        <NavLink class="nav-item" href="/tasks">
+            <i class="bi bi-list-task"></i>
+            Tasks
+            @if (runningCount > 0)
+            {
+                <span class="nav-badge info">@runningCount</span>
+            }
+        </NavLink>
+
+        <NavLink class="nav-item" href="/logs">
+            <i class="bi bi-terminal"></i>
+            Logs
+        </NavLink>
+    </div>
+
+    <!-- System Status Footer -->
+    <div class="sidebar-footer">
+        <div class="sys-status-label">System Status</div>
+        <div class="sys-status-row">
+            <div class="sys-stat">
+                <span class="dot @(errorCount == 0 ? "active" : "error") sm"></span>
+                <span>@(errorCount == 0 ? "Healthy" : $"{errorCount} issues")</span>
+            </div>
+            <div class="sys-stat text-muted text-xs">
+                <i class="bi bi-hdd-rack"></i>
+                @activeCount/@totalCount online
+            </div>
+        </div>
+    </div>
+</nav>
+
+@code {
+    private int errorCount;
+    private int activeCount;
+    private int totalCount;
+    private int runningCount;
+
+    protected override void OnInitialized()
+    {
+        Refresh();
+        DataService.OnDataChanged += HandleChange;
+    }
+
+    private void HandleChange()
+    {
+        Refresh();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void Refresh()
+    {
+        var agents = DataService.GetAgents();
+        var tasks  = DataService.GetTasks();
+        errorCount  = agents.Count(a => a.Status is AgentStatus.Error or AgentStatus.Offline);
+        activeCount = agents.Count(a => a.Status is AgentStatus.Active or AgentStatus.Idle);
+        totalCount  = agents.Count;
+        runningCount = tasks.Count(t => t.Status == AgentTaskStatus.Running);
+    }
+
+    public void Dispose() => DataService.OnDataChanged -= HandleChange;
+}

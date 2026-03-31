@@ -1,0 +1,288 @@
+@page "/agents/{AgentId}"
+@rendermode InteractiveServer
+@implements IDisposable
+@inject MockDataService DataService
+@inject NavigationManager Nav
+
+<PageTitle>@(agent?.Name ?? "Agent") — Xpedeon AMC</PageTitle>
+
+@if (agent == null)
+{
+    <div class="empty-state">
+        <div class="empty-icon"><i class="bi bi-robot"></i></div>
+        <div class="empty-title">Agent not found</div>
+        <div class="empty-desc">The agent ID "@AgentId" does not exist.</div>
+        <a href="/agents" class="btn btn-ghost mt-4"><i class="bi bi-arrow-left"></i> Back to Agents</a>
+    </div>
+}
+else
+{
+    <!-- Hero Card -->
+    <div class="detail-hero s-@StatusClass">
+        <div class="flex items-center gap-4 justify-between">
+            <div class="flex items-center gap-4">
+                <div class="detail-avatar" style="background:@TypeBg; color:@TypeColor; border:1px solid @TypeBorder;">
+                    <i class="bi @TypeIcon"></i>
+                </div>
+                <div>
+                    <div style="display:flex; align-items:center; gap:var(--s3); margin-bottom:var(--s2);">
+                        <h1 class="page-title" style="margin-bottom:0;">@agent.Name</h1>
+                        <StatusBadge Status="@agent.Status" />
+                        <TypeBadge Type="@agent.Type" />
+                    </div>
+                    <div class="text-sm text-muted font-mono">@agent.HostMachine · v@agent.Version</div>
+                </div>
+            </div>
+            <a href="/agents" class="btn btn-ghost btn-sm"><i class="bi bi-arrow-left"></i> Back</a>
+        </div>
+
+        <div class="detail-meta">
+            <div class="detail-meta-item">
+                <span class="detail-meta-label">Uptime</span>
+                <span class="detail-meta-value">@agent.UptimeFormatted</span>
+            </div>
+            <div class="detail-meta-item">
+                <span class="detail-meta-label">Started</span>
+                <span class="detail-meta-value">@agent.StartedAt.ToString("MMM d, HH:mm")</span>
+            </div>
+            <div class="detail-meta-item">
+                <span class="detail-meta-label">Last Seen</span>
+                <span class="detail-meta-value">@RelTime(agent.LastSeen)</span>
+            </div>
+            <div class="detail-meta-item">
+                <span class="detail-meta-label">Success Rate</span>
+                <span class="detail-meta-value text-success">@agent.SuccessRate.ToString("F1")%</span>
+            </div>
+            <div class="detail-meta-item">
+                <span class="detail-meta-label">Completed</span>
+                <span class="detail-meta-value text-success">@agent.TasksCompleted</span>
+            </div>
+            <div class="detail-meta-item">
+                <span class="detail-meta-label">Failed</span>
+                <span class="detail-meta-value text-error">@agent.TasksFailed</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="g-2 mb-5">
+        <!-- Metrics -->
+        <div class="card card-pad">
+            <div class="section-head"><i class="bi bi-speedometer2"></i> Live Metrics</div>
+            <div style="display:flex; flex-direction:column; gap:var(--s4);">
+                <!-- CPU -->
+                <div>
+                    <div class="flex justify-between mb-2">
+                        <span class="text-sm text-secondary">CPU Usage</span>
+                        <span style="font-size:18px; font-weight:700; color:@(agent.CpuUsage >= 85 ? "var(--c-error)" : "var(--txt-primary)");">
+                            @agent.CpuUsage.ToString("F1")%
+                        </span>
+                    </div>
+                    <div class="prog-track" style="height:8px;">
+                        <div class="prog-fill @(agent.CpuUsage >= 85 ? "failed" : "running")"
+                             style="width:@agent.CpuUsage.ToString("F0")%"></div>
+                    </div>
+                </div>
+                <!-- Memory -->
+                <div>
+                    <div class="flex justify-between mb-2">
+                        <span class="text-sm text-secondary">Memory</span>
+                        <span style="font-size:18px; font-weight:700;">
+                            @agent.MemoryUsageMB.ToString("F0") <span class="text-muted" style="font-size:13px;font-weight:400;">/ @agent.MemoryLimitMB.ToString("F0") MB</span>
+                        </span>
+                    </div>
+                    <div class="prog-track" style="height:8px;">
+                        <div class="prog-fill mem"
+                             style="width:@MemPct.ToString("F0")%; background:linear-gradient(90deg,#8b5cf6,#6366f1);"></div>
+                    </div>
+                </div>
+
+                @if (agent.CpuHistory.Any())
+                {
+                    <div>
+                        <div class="text-sm text-secondary mb-2">CPU History (last 20 ticks)</div>
+                        <div class="sparkline">
+                            @foreach (var v in agent.CpuHistory)
+                            {
+                                var h = Math.Max(2, v / 100.0 * 32);
+                                <div class="spark-bar" style="height:@h.ToString("F0")px; opacity:@(0.4 + v/100*0.6);" title="@v%"></div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Current Status -->
+        <div class="card card-pad">
+            <div class="section-head"><i class="bi bi-broadcast"></i> Current State</div>
+            <div style="display:flex; flex-direction:column; gap:var(--s4);">
+                <div>
+                    <div class="detail-meta-label mb-1">Current Task</div>
+                    <div style="font-size:14px; color:var(--txt-primary); font-weight:500;">@agent.CurrentTask</div>
+                </div>
+                @{
+                    var runningTask = agentTasks.FirstOrDefault(t => t.Status == AgentTaskStatus.Running);
+                }
+                @if (runningTask != null)
+                {
+                    <div>
+                        <div class="detail-meta-label mb-1">Progress</div>
+                        <div class="prog-wrap">
+                            <div class="prog-track">
+                                <div class="prog-fill running" style="width:@runningTask.Progress%"></div>
+                            </div>
+                            <span class="prog-label">@runningTask.Progress%</span>
+                        </div>
+                        @if (runningTask.RecordsTotal > 0)
+                        {
+                            <div class="text-xs text-muted mt-1">
+                                @runningTask.RecordsProcessed.ToString("N0") / @runningTask.RecordsTotal.ToString("N0") records
+                            </div>
+                        }
+                    </div>
+                }
+                <div>
+                    <div class="detail-meta-label mb-1">Queued Tasks</div>
+                    <span style="font-size:20px; font-weight:700;">
+                        @agentTasks.Count(t => t.Status == AgentTaskStatus.Queued)
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Task History -->
+    <div class="section-head"><i class="bi bi-list-task"></i> Task History</div>
+    <div class="card mb-5" style="padding:0; overflow:hidden;">
+        @if (!agentTasks.Any())
+        {
+            <div class="empty-state" style="padding:var(--s8);">
+                <div class="empty-icon" style="font-size:28px;"><i class="bi bi-inbox"></i></div>
+                <div class="empty-title" style="font-size:14px;">No tasks yet</div>
+            </div>
+        }
+        else
+        {
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Task Name</th>
+                        <th>Status</th>
+                        <th>Priority</th>
+                        <th>Progress</th>
+                        <th>Started</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var task in agentTasks)
+                    {
+                        <TaskRow Task="@task" />
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+
+    <!-- Recent Logs -->
+    <div class="section-head"><i class="bi bi-terminal"></i> Agent Logs</div>
+    <div class="card" style="padding:0; overflow:hidden;">
+        @if (!agentLogs.Any())
+        {
+            <div class="empty-state" style="padding:var(--s8);">
+                <div class="empty-icon" style="font-size:28px;"><i class="bi bi-terminal"></i></div>
+                <div class="empty-title" style="font-size:14px;">No logs</div>
+            </div>
+        }
+        else
+        {
+            <div style="max-height:400px; overflow-y:auto;">
+                @foreach (var log in agentLogs)
+                {
+                    <div class="log-row lvl-@log.Level.ToString().ToLower()">
+                        <div class="log-indicator @log.Level.ToString().ToLower()"></div>
+                        <div class="log-ts">@log.Timestamp.ToString("HH:mm:ss.fff")</div>
+                        <div class="log-lvl @log.Level.ToString().ToUpper()">@log.Level.ToString().ToUpper()</div>
+                        <div class="log-src">@log.AgentName</div>
+                        <div class="log-msg">@log.Message</div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public string AgentId { get; set; } = "";
+
+    private Agent?          agent      = null;
+    private List<AgentTask> agentTasks = new();
+    private List<LogEntry>  agentLogs  = new();
+
+    protected override void OnInitialized()
+    {
+        Refresh();
+        DataService.OnDataChanged += HandleChange;
+    }
+
+    protected override void OnParametersSet() => Refresh();
+
+    private void HandleChange()
+    {
+        Refresh();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void Refresh()
+    {
+        agent      = DataService.GetAgent(AgentId);
+        agentTasks = DataService.GetTasksForAgent(AgentId).ToList();
+        agentLogs  = DataService.GetLogsForAgent(AgentId, 30).ToList();
+    }
+
+    public void Dispose() => DataService.OnDataChanged -= HandleChange;
+
+    private string StatusClass => agent?.Status switch
+    {
+        AgentStatus.Active  => "active",
+        AgentStatus.Idle    => "idle",
+        AgentStatus.Warning => "warning",
+        AgentStatus.Error   => "error",
+        AgentStatus.Offline => "offline",
+        _ => "idle"
+    } ?? "idle";
+
+    private double MemPct => agent is { MemoryLimitMB: > 0 }
+        ? agent.MemoryUsageMB / agent.MemoryLimitMB * 100 : 0;
+
+    private (string icon, string bg, string color, string border) TypeStyleTuple
+    {
+        get
+        {
+            if (agent == null)
+                return ("bi-robot", "rgba(100,116,139,0.12)", "#94a3b8", "rgba(100,116,139,0.2)");
+            return agent.Type switch
+            {
+                AgentType.DataSync      => ("bi-arrow-repeat",   "rgba(6,182,212,0.12)",   "#06b6d4", "rgba(6,182,212,0.25)"),
+                AgentType.Reporting     => ("bi-file-bar-graph", "rgba(167,139,250,0.12)", "#a78bfa", "rgba(167,139,250,0.25)"),
+                AgentType.Integration   => ("bi-plugin",         "rgba(251,146,60,0.12)",  "#fb923c", "rgba(251,146,60,0.25)"),
+                AgentType.Notification  => ("bi-bell",           "rgba(250,204,21,0.12)",  "#facc15", "rgba(250,204,21,0.25)"),
+                AgentType.Processing    => ("bi-cpu",            "rgba(96,165,250,0.12)",  "#60a5fa", "rgba(96,165,250,0.25)"),
+                _ => ("bi-robot", "rgba(100,116,139,0.12)", "#94a3b8", "rgba(100,116,139,0.2)")
+            };
+        }
+    }
+
+    private string TypeIcon   => TypeStyleTuple.icon;
+    private string TypeBg     => TypeStyleTuple.bg;
+    private string TypeColor  => TypeStyleTuple.color;
+    private string TypeBorder => TypeStyleTuple.border;
+
+    private static string RelTime(DateTime dt)
+    {
+        var d = DateTime.UtcNow - dt;
+        return d.TotalSeconds < 60 ? "just now"
+             : d.TotalMinutes < 60 ? $"{(int)d.TotalMinutes}m ago"
+             : $"{(int)d.TotalHours}h ago";
+    }
+}

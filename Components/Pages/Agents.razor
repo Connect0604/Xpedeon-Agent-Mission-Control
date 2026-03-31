@@ -1,0 +1,157 @@
+@page "/agents"
+@rendermode InteractiveServer
+@implements IDisposable
+@inject MockDataService DataService
+
+<PageTitle>Agents — Xpedeon AMC</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Agents</h1>
+        <p class="page-subtitle">@filtered.Count of @allAgents.Count agents shown</p>
+    </div>
+</div>
+
+<!-- Filter Bar -->
+<div class="filter-bar">
+    <div class="search-box">
+        <i class="bi bi-search"></i>
+        <input type="text" placeholder="Search agents..." @bind="searchQuery" @bind:event="oninput" />
+    </div>
+
+    @foreach (var status in AllStatuses)
+    {
+        <button class="chip @(statusFilter == status ? "on" : "")"
+                @onclick="() => ToggleStatus(status)">
+            <span class="dot @status.ToString().ToLower() sm"></span>
+            @status
+        </button>
+    }
+
+    <div style="margin-left:auto; display:flex; gap:var(--s2);">
+        <button class="btn btn-ghost btn-sm @(viewMode == "grid" ? "btn-primary" : "")"
+                @onclick='() => viewMode = "grid"'>
+            <i class="bi bi-grid-3x2-gap"></i>
+        </button>
+        <button class="btn btn-ghost btn-sm @(viewMode == "table" ? "btn-primary" : "")"
+                @onclick='() => viewMode = "table"'>
+            <i class="bi bi-table"></i>
+        </button>
+    </div>
+</div>
+
+@if (!filtered.Any())
+{
+    <div class="card card-pad empty-state">
+        <div class="empty-icon"><i class="bi bi-robot"></i></div>
+        <div class="empty-title">No agents match your filters</div>
+        <div class="empty-desc">Try adjusting the search or status filter.</div>
+    </div>
+}
+else if (viewMode == "grid")
+{
+    <div class="g-agents">
+        @foreach (var agent in filtered)
+        {
+            <AgentCard Agent="@agent" />
+        }
+    </div>
+}
+else
+{
+    <div class="card" style="padding:0; overflow:hidden;">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Agent</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Current Task</th>
+                    <th>CPU</th>
+                    <th>Memory</th>
+                    <th>Completed</th>
+                    <th>Failed</th>
+                    <th>Uptime</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var agent in filtered)
+                {
+                    <tr @onclick="() => NavToAgent(agent.Id)" style="cursor:pointer;">
+                        <td>
+                            <div style="font-weight:500; color:var(--txt-primary);">@agent.Name</div>
+                            <div class="text-xs font-mono text-muted">@agent.HostMachine</div>
+                        </td>
+                        <td><TypeBadge Type="@agent.Type" /></td>
+                        <td><StatusBadge Status="@agent.Status" /></td>
+                        <td style="max-width:180px;" class="truncate text-secondary">@agent.CurrentTask</td>
+                        <td>
+                            <span style="color:@(agent.CpuUsage >= 85 ? "var(--c-error)" : agent.CpuUsage >= 70 ? "var(--c-warning)" : "var(--txt-secondary)");">
+                                @agent.CpuUsage.ToString("F0")%
+                            </span>
+                        </td>
+                        <td class="text-secondary">@agent.MemoryUsageMB.ToString("F0") MB</td>
+                        <td class="text-success font-medium">@agent.TasksCompleted</td>
+                        <td class="text-error font-medium">@agent.TasksFailed</td>
+                        <td class="text-muted text-sm">@agent.UptimeFormatted</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [Inject] private NavigationManager Nav { get; set; } = null!;
+
+    private List<Agent> allAgents = new();
+    private List<Agent> filtered  = new();
+    private string searchQuery  = "";
+    private string viewMode     = "grid";
+    private AgentStatus? statusFilter;
+
+    private static readonly AgentStatus[] AllStatuses =
+        Enum.GetValues<AgentStatus>();
+
+    protected override void OnInitialized()
+    {
+        Refresh();
+        DataService.OnDataChanged += HandleChange;
+    }
+
+    private void HandleChange()
+    {
+        Refresh();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void Refresh()
+    {
+        allAgents = DataService.GetAgents().ToList();
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
+    {
+        filtered = allAgents
+            .Where(a => statusFilter == null || a.Status == statusFilter)
+            .Where(a => string.IsNullOrWhiteSpace(searchQuery)
+                     || a.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+                     || a.HostMachine.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+                     || a.CurrentTask.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(a => a.Status == AgentStatus.Error)
+            .ThenByDescending(a => a.Status == AgentStatus.Warning)
+            .ThenByDescending(a => a.Status == AgentStatus.Active)
+            .ToList();
+    }
+
+    private void ToggleStatus(AgentStatus status)
+    {
+        statusFilter = statusFilter == status ? null : status;
+        ApplyFilter();
+    }
+
+    private void NavToAgent(string id) => Nav.NavigateTo($"/agents/{id}");
+
+    public void Dispose() => DataService.OnDataChanged -= HandleChange;
+}

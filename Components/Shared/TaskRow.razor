@@ -1,0 +1,72 @@
+@* Single task row for the tasks page *@
+
+<tr class="task-tr">
+    <td>
+        <div style="font-size:13px; font-weight:500; color:var(--txt-primary);">@Task.Name</div>
+        <div style="font-size:11px; color:var(--txt-muted); margin-top:2px;">@Task.Description</div>
+        <div style="font-size:11px; color:var(--accent); margin-top:2px;">@Task.AgentName</div>
+    </td>
+    <td><TaskStatusBadge Status="@Task.Status" /></td>
+    <td><PriorityBadge Priority="@Task.Priority" /></td>
+
+    <td>
+        <div class="prog-wrap">
+            <div class="prog-track">
+                <div class="prog-fill @ProgClass" style="width:@Task.Progress%"></div>
+            </div>
+            <span class="prog-label">@Task.Progress%</span>
+        </div>
+        @if (Task.RecordsTotal > 0)
+        {
+            <div style="font-size:10.5px; color:var(--txt-muted); margin-top:3px;">
+                @Task.RecordsProcessed.ToString("N0") / @Task.RecordsTotal.ToString("N0") records
+            </div>
+        }
+    </td>
+    <td style="font-size:12px; color:var(--txt-muted); font-family:'JetBrains Mono',monospace; white-space:nowrap;">
+        @FormatTime(Task.CreatedAt)
+        @if (Task.Duration.HasValue)
+        {
+            <div style="color:var(--txt-muted); font-size:10.5px;">
+                @FormatDuration(Task.Duration.Value)
+            </div>
+        }
+    </td>
+    @if (!string.IsNullOrEmpty(Task.ErrorMessage))
+    {
+        <td colspan="1" style="font-size:11px; color:var(--c-error); max-width:200px; word-break:break-word;">
+            <i class="bi bi-exclamation-triangle"></i> @Task.ErrorMessage
+        </td>
+    }
+    else
+    {
+        <td></td>
+    }
+</tr>
+
+@code {
+    [Parameter, EditorRequired] public AgentTask Task { get; set; } = null!;
+
+    private string ProgClass => Task.Status switch
+    {
+        AgentTaskStatus.Running   => "running",
+        AgentTaskStatus.Completed => "completed",
+        AgentTaskStatus.Failed    => "failed",
+        AgentTaskStatus.Queued    => "queued",
+        _ => "queued"
+    };
+
+    private static string FormatTime(DateTime dt)
+    {
+        var diff = DateTime.UtcNow - dt;
+        return diff.TotalMinutes < 1 ? "just now"
+             : diff.TotalMinutes < 60 ? $"{(int)diff.TotalMinutes}m ago"
+             : diff.TotalHours < 24 ? $"{(int)diff.TotalHours}h ago"
+             : dt.ToString("MMM d HH:mm");
+    }
+
+    private static string FormatDuration(TimeSpan d) =>
+        d.TotalHours >= 1 ? $"{(int)d.TotalHours}h {d.Minutes}m"
+        : d.TotalMinutes >= 1 ? $"{(int)d.TotalMinutes}m {d.Seconds}s"
+        : $"{d.Seconds}s";
+}

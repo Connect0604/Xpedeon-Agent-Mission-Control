@@ -1,0 +1,138 @@
+@page "/logs"
+@rendermode InteractiveServer
+@implements IDisposable
+@inject MockDataService DataService
+@inject IJSRuntime JS
+
+<PageTitle>Logs — Xpedeon AMC</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">System Logs</h1>
+        <p class="page-subtitle">@filtered.Count entries shown · auto-refreshing</p>
+    </div>
+    <div class="flex gap-2 items-center">
+        <label class="flex items-center gap-2 text-sm text-secondary" style="cursor:pointer;">
+            <input type="checkbox" @bind="autoScroll" style="accent-color:var(--accent);" />
+            Auto-scroll
+        </label>
+        <button class="btn btn-ghost btn-sm" @onclick="ClearFilter">
+            <i class="bi bi-x-circle"></i> Clear filters
+        </button>
+    </div>
+</div>
+
+<!-- Filter Bar -->
+<div class="filter-bar">
+    <div class="search-box">
+        <i class="bi bi-search"></i>
+        <input type="text" placeholder="Search messages..." @bind="searchQuery" @bind:event="oninput" />
+    </div>
+
+    @foreach (var lvl in LevelFilters)
+    {
+        <button class="chip @(levelFilter == lvl ? "on" : "")" @onclick="() => ToggleLevel(lvl)">
+            <span class="log-indicator @lvl.ToString().ToLower()" style="display:inline-block;"></span>
+            @lvl
+        </button>
+    }
+
+    <div class="search-box" style="min-width:140px;">
+        <i class="bi bi-robot"></i>
+        <input type="text" placeholder="Filter agent..." @bind="agentFilter" @bind:event="oninput" />
+    </div>
+</div>
+
+<!-- Log Table -->
+<div class="card" style="padding:0; overflow:hidden;">
+    <div id="log-container" style="max-height:calc(100vh - 300px); overflow-y:auto; font-family:'JetBrains Mono',monospace;">
+        @if (!filtered.Any())
+        {
+            <div class="empty-state">
+                <div class="empty-icon"><i class="bi bi-terminal"></i></div>
+                <div class="empty-title">No log entries match</div>
+                <div class="empty-desc">Adjust filters above.</div>
+            </div>
+        }
+        else
+        {
+            @foreach (var entry in filtered)
+            {
+                <div class="log-row lvl-@entry.Level.ToString().ToLower()">
+                    <div class="log-indicator @entry.Level.ToString().ToLower()"></div>
+                    <div class="log-ts">@entry.Timestamp.ToLocalTime().ToString("HH:mm:ss.fff")</div>
+                    <div class="log-lvl @entry.Level.ToString().ToUpper()">@entry.Level.ToString().ToUpper()</div>
+                    <div class="log-src">@entry.AgentName</div>
+                    <div class="log-msg">@entry.Message</div>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private List<LogEntry> allLogs  = new();
+    private List<LogEntry> filtered = new();
+    private string searchQuery = "";
+    private string agentFilter = "";
+    private LogLevel? levelFilter;
+    private bool autoScroll = true;
+
+    private static readonly LogLevel[] LevelFilters =
+        { LogLevel.Info, LogLevel.Success, LogLevel.Warning, LogLevel.Error, LogLevel.Critical };
+
+    protected override void OnInitialized()
+    {
+        Refresh();
+        DataService.OnDataChanged += HandleChange;
+    }
+
+    private void HandleChange()
+    {
+        Refresh();
+        InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            if (autoScroll)
+                await JS.InvokeVoidAsync("AMC.scrollToBottom", "log-container");
+        });
+    }
+
+    private void Refresh()
+    {
+        allLogs = DataService.GetLogs(200).ToList();
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
+    {
+        var q = allLogs.AsEnumerable();
+
+        if (levelFilter.HasValue)
+            q = q.Where(l => l.Level == levelFilter.Value);
+
+        if (!string.IsNullOrWhiteSpace(searchQuery))
+            q = q.Where(l => l.Message.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+
+        if (!string.IsNullOrWhiteSpace(agentFilter))
+            q = q.Where(l => l.AgentName.Contains(agentFilter, StringComparison.OrdinalIgnoreCase));
+
+        filtered = q.ToList();
+    }
+
+    private void ToggleLevel(LogLevel l)
+    {
+        levelFilter = levelFilter == l ? null : l;
+        ApplyFilter();
+    }
+
+    private void ClearFilter()
+    {
+        searchQuery  = "";
+        agentFilter  = "";
+        levelFilter  = null;
+        ApplyFilter();
+    }
+
+    public void Dispose() => DataService.OnDataChanged -= HandleChange;
+}

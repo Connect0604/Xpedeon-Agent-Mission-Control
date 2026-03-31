@@ -1,0 +1,32 @@
+@* Displays an agent status badge with pulsing dot *@
+
+<span class="badge @StatusClass">
+    <span class="dot @DotClass sm"></span>
+    @Label
+</span>
+
+@code {
+    [Parameter] public AgentStatus Status { get; set; }
+
+    private string StatusClass => Status switch
+    {
+        AgentStatus.Active  => "active",
+        AgentStatus.Idle    => "idle",
+        AgentStatus.Warning => "warning",
+        AgentStatus.Error   => "error",
+        AgentStatus.Offline => "offline",
+        _ => "idle"
+    };
+
+    private string DotClass => Status switch
+    {
+        AgentStatus.Active  => "active",
+        AgentStatus.Idle    => "idle",
+        AgentStatus.Warning => "warning",
+        AgentStatus.Error   => "error",
+        AgentStatus.Offline => "offline",
+        _ => "idle"
+    };
+
+    private string Label => Status.ToString();
+}

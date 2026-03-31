@@ -1,0 +1,23 @@
+@* Reusable KPI metric card *@
+
+<div class="metric-card v-@Variant">
+    <div class="metric-icon v-@Variant">
+        <i class="bi @Icon"></i>
+    </div>
+    <div class="metric-body">
+        <div class="metric-value">@Value</div>
+        <div class="metric-label">@Title</div>
+        @if (!string.IsNullOrEmpty(Sub))
+        {
+            <div class="metric-sub">@Sub</div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Title   { get; set; } = "";
+    [Parameter] public string Value   { get; set; } = "0";
+    [Parameter] public string Icon    { get; set; } = "bi-circle";
+    [Parameter] public string Variant { get; set; } = "accent";  // accent | success | warning | danger
+    [Parameter] public string? Sub    { get; set; }
+}

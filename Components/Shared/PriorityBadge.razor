@@ -1,0 +1,16 @@
+@* Priority label badge *@
+
+<span class="prio @CssClass">@Priority.ToString()</span>
+
+@code {
+    [Parameter, EditorRequired] public TaskPriority Priority { get; set; }
+
+    private string CssClass => Priority switch
+    {
+        TaskPriority.Critical => "critical",
+        TaskPriority.High     => "high",
+        TaskPriority.Medium   => "medium",
+        TaskPriority.Low      => "low",
+        _ => "low"
+    };
+}

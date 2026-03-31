@@ -1,0 +1,17 @@
+@inherits LayoutComponentBase
+
+<div class="app-shell">
+    <Sidebar />
+    <div class="main-wrapper">
+        <TopBar />
+        <main class="page-content">
+            @Body
+        </main>
+    </div>
+</div>
+
+<div id="blazor-error-ui">
+    An unhandled error has occurred.
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss">&#10006;</a>
+</div>

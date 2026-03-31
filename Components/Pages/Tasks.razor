@@ -1,0 +1,158 @@
+@page "/tasks"
+@rendermode InteractiveServer
+@implements IDisposable
+@inject MockDataService DataService
+
+<PageTitle>Tasks — Xpedeon AMC</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Tasks</h1>
+        <p class="page-subtitle">Agent task queue &amp; execution history</p>
+    </div>
+</div>
+
+<!-- Tab Bar -->
+<div class="tab-bar">
+    @foreach (var tab in Tabs)
+    {
+        <button class="tab @(activeTab == tab.key ? "on" : "")" @onclick="() => SetTab(tab.key)">
+            @tab.label
+            <span class="tab-count">@CountFor(tab.key)</span>
+        </button>
+    }
+</div>
+
+<!-- Filter bar -->
+<div class="filter-bar">
+    <div class="search-box">
+        <i class="bi bi-search"></i>
+        <input type="text" placeholder="Search tasks..." @bind="searchQuery" @bind:event="oninput" />
+    </div>
+
+    @foreach (var prio in Priorities)
+    {
+        <button class="chip @(prioFilter == prio ? "on" : "")"
+                @onclick="() => TogglePrio(prio)">
+            @prio
+        </button>
+    }
+</div>
+
+<!-- Task Table -->
+<div class="card" style="padding:0; overflow:hidden;">
+    @if (!filtered.Any())
+    {
+        <div class="empty-state">
+            <div class="empty-icon"><i class="bi bi-inbox"></i></div>
+            <div class="empty-title">No tasks found</div>
+            <div class="empty-desc">Adjust filters or wait for agents to pick up work.</div>
+        </div>
+    }
+    else
+    {
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Task</th>
+                    <th>Status</th>
+                    <th>Priority</th>
+                    <th>Progress</th>
+                    <th>Time</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var task in filtered)
+                {
+                    <TaskRow Task="@task" />
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    private List<AgentTask> allTasks = new();
+    private List<AgentTask> filtered = new();
+    private string activeTab    = "all";
+    private string searchQuery  = "";
+    private TaskPriority? prioFilter;
+
+    private record TabDef(string key, string label);
+    private static readonly TabDef[] Tabs =
+    {
+        new("all",       "All"),
+        new("running",   "Running"),
+        new("queued",    "Queued"),
+        new("completed", "Completed"),
+        new("failed",    "Failed"),
+    };
+
+    private static readonly TaskPriority[] Priorities = Enum.GetValues<TaskPriority>();
+
+    protected override void OnInitialized()
+    {
+        Refresh();
+        DataService.OnDataChanged += HandleChange;
+    }
+
+    private void HandleChange()
+    {
+        Refresh();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void Refresh()
+    {
+        allTasks = DataService.GetTasks().ToList();
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
+    {
+        var q = allTasks.AsEnumerable();
+
+        q = activeTab switch
+        {
+            "running"   => q.Where(t => t.Status == AgentTaskStatus.Running),
+            "queued"    => q.Where(t => t.Status == AgentTaskStatus.Queued),
+            "completed" => q.Where(t => t.Status == AgentTaskStatus.Completed),
+            "failed"    => q.Where(t => t.Status == AgentTaskStatus.Failed),
+            _ => q
+        };
+
+        if (prioFilter.HasValue)
+            q = q.Where(t => t.Priority == prioFilter.Value);
+
+        if (!string.IsNullOrWhiteSpace(searchQuery))
+            q = q.Where(t => t.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+                           || t.AgentName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+                           || t.Description.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+
+        filtered = q.OrderByDescending(t => t.CreatedAt).ToList();
+    }
+
+    private int CountFor(string tab) => tab switch
+    {
+        "running"   => allTasks.Count(t => t.Status == AgentTaskStatus.Running),
+        "queued"    => allTasks.Count(t => t.Status == AgentTaskStatus.Queued),
+        "completed" => allTasks.Count(t => t.Status == AgentTaskStatus.Completed),
+        "failed"    => allTasks.Count(t => t.Status == AgentTaskStatus.Failed),
+        _ => allTasks.Count
+    };
+
+    private void SetTab(string tab)
+    {
+        activeTab = tab;
+        ApplyFilter();
+    }
+
+    private void TogglePrio(TaskPriority p)
+    {
+        prioFilter = prioFilter == p ? null : p;
+        ApplyFilter();
+    }
+
+    public void Dispose() => DataService.OnDataChanged -= HandleChange;
+}

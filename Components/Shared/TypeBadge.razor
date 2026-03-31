@@ -1,0 +1,30 @@
+@* Agent type tag badge *@
+
+<span class="type-tag @CssClass">
+    <i class="bi @Icon"></i>
+    @Type.ToString()
+</span>
+
+@code {
+    [Parameter, EditorRequired] public AgentType Type { get; set; }
+
+    private string CssClass => Type switch
+    {
+        AgentType.DataSync     => "datasync",
+        AgentType.Reporting    => "reporting",
+        AgentType.Integration  => "integration",
+        AgentType.Notification => "notification",
+        AgentType.Processing   => "processing",
+        _ => "processing"
+    };
+
+    private string Icon => Type switch
+    {
+        AgentType.DataSync     => "bi-arrow-repeat",
+        AgentType.Reporting    => "bi-file-bar-graph",
+        AgentType.Integration  => "bi-plugin",
+        AgentType.Notification => "bi-bell",
+        AgentType.Processing   => "bi-cpu",
+        _ => "bi-robot"
+    };
+}

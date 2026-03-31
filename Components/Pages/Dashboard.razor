@@ -1,0 +1,218 @@
+@page "/"
+@rendermode InteractiveServer
+@implements IDisposable
+@inject MockDataService DataService
+
+<PageTitle>Dashboard — Xpedeon AMC</PageTitle>
+
+<!-- Page Header -->
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Mission Control</h1>
+        <p class="page-subtitle">Real-time agent monitoring &amp; operations centre</p>
+    </div>
+    <div class="flex items-center gap-3">
+        <span class="text-xs text-muted font-mono">Updated @lastUpdated</span>
+    </div>
+</div>
+
+<!-- KPI Row -->
+<div class="g-4 mb-6">
+    <MetricCard Title="Total Agents"   Value="@summary.TotalAgents.ToString()"
+                Icon="bi-robot"        Variant="accent"
+                Sub="@($"v{summary.ActiveAgents} active, {summary.IdleAgents} idle")" />
+
+    <MetricCard Title="Active Now"     Value="@summary.ActiveAgents.ToString()"
+                Icon="bi-activity"     Variant="success"
+                Sub="@($"{summary.WarningAgents} warning")" />
+
+    <MetricCard Title="Issues"         Value="@((summary.ErrorAgents + summary.OfflineAgents).ToString())"
+                Icon="bi-exclamation-triangle" Variant="@(summary.ErrorAgents > 0 ? "danger" : "warning")"
+                Sub="@($"{summary.ErrorAgents} error · {summary.OfflineAgents} offline")" />
+
+    <MetricCard Title="Tasks Today"    Value="@summary.TotalTasksToday.ToString()"
+                Icon="bi-check2-circle" Variant="accent"
+                Sub="@($"{summary.RunningTasks} running · {summary.QueuedTasks} queued")" />
+</div>
+
+<!-- Main Content -->
+<div class="dash-layout">
+
+    <!-- Left: Agent Grid -->
+    <div>
+        <div class="section-head">
+            <i class="bi bi-broadcast"></i>
+            Agent Fleet
+            <span style="margin-left:auto; font-size:11px; font-weight:400; color:var(--txt-muted);">
+                @agents.Count agents
+            </span>
+        </div>
+
+        @if (!agents.Any())
+        {
+            <div class="card card-pad empty-state">
+                <div class="empty-icon"><i class="bi bi-robot"></i></div>
+                <div class="empty-title">No agents registered</div>
+            </div>
+        }
+        else
+        {
+            <div class="g-agents">
+                @foreach (var agent in agents)
+                {
+                    <AgentCard Agent="@agent" />
+                }
+            </div>
+        }
+
+        <!-- Running Tasks Quick View -->
+        <div class="section-head mt-6">
+            <i class="bi bi-play-circle"></i>
+            Active Tasks
+        </div>
+
+        <div class="card" style="padding:0;">
+            @if (!runningTasks.Any())
+            {
+                <div class="empty-state" style="padding:var(--s8);">
+                    <div class="empty-icon" style="font-size:28px;"><i class="bi bi-check2-all"></i></div>
+                    <div class="empty-title" style="font-size:14px;">No tasks running</div>
+                </div>
+            }
+            else
+            {
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Task</th>
+                            <th>Agent</th>
+                            <th>Priority</th>
+                            <th style="width:200px;">Progress</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var task in runningTasks)
+                        {
+                            <tr>
+                                <td>
+                                    <div style="font-weight:500; color:var(--txt-primary);">@task.Name</div>
+                                    <div class="text-xs text-muted">@task.TaskType</div>
+                                </td>
+                                <td class="text-accent text-sm">@task.AgentName</td>
+                                <td><PriorityBadge Priority="@task.Priority" /></td>
+                                <td>
+                                    <div class="prog-wrap">
+                                        <div class="prog-track">
+                                            <div class="prog-fill running" style="width:@task.Progress%"></div>
+                                        </div>
+                                        <span class="prog-label">@task.Progress%</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+
+    <!-- Right: Activity Feed -->
+    <div>
+        <div class="section-head">
+            <i class="bi bi-clock-history"></i>
+            Live Activity
+        </div>
+        <div class="card" style="padding:0; overflow:hidden;">
+            <div style="max-height:620px; overflow-y:auto;">
+                @foreach (var log in recentLogs)
+                {
+                    <div class="feed-item">
+                        <div class="feed-icon @log.Level.ToString().ToLower()">
+                            <i class="bi @FeedIcon(log.Level)"></i>
+                        </div>
+                        <div class="feed-body">
+                            <div class="feed-msg">@log.Message</div>
+                            <div class="feed-meta">
+                                <span class="feed-agent">@log.AgentName</span>
+                                <span class="text-muted">·</span>
+                                <span class="feed-time">@RelTime(log.Timestamp)</span>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Fleet Health -->
+        <div class="section-head mt-6">
+            <i class="bi bi-bar-chart-line"></i>
+            Fleet Health
+        </div>
+        <div class="card card-pad">
+            <div style="display:flex; flex-direction:column; gap:var(--s3);">
+                <HealthBar Label="Healthy" Value="@summary.ActiveAgents" Total="@summary.TotalAgents" Color="var(--c-active)" />
+                <HealthBar Label="Warning" Value="@summary.WarningAgents" Total="@summary.TotalAgents" Color="var(--c-warning)" />
+                <HealthBar Label="Error"   Value="@summary.ErrorAgents"   Total="@summary.TotalAgents" Color="var(--c-error)" />
+                <HealthBar Label="Offline" Value="@summary.OfflineAgents" Total="@summary.TotalAgents" Color="var(--c-offline)" />
+            </div>
+
+            <div style="margin-top:var(--s4); padding-top:var(--s4); border-top:1px solid var(--border-faint); display:flex; justify-content:space-between; align-items:center;">
+                <span class="text-sm text-muted">Avg Success Rate</span>
+                <span style="font-size:18px; font-weight:700; color:var(--c-active);">@summary.AverageSuccessRate.ToString("F1")%</span>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+@code {
+    private List<Agent>     agents       = new();
+    private List<AgentTask> runningTasks = new();
+    private List<LogEntry>  recentLogs   = new();
+    private DashboardSummary summary     = new();
+    private string lastUpdated = "";
+
+    protected override void OnInitialized()
+    {
+        Refresh();
+        DataService.OnDataChanged += HandleChange;
+    }
+
+    private void HandleChange()
+    {
+        Refresh();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void Refresh()
+    {
+        agents       = DataService.GetAgents().ToList();
+        summary      = DataService.GetSummary();
+        runningTasks = DataService.GetTasks()
+                           .Where(t => t.Status == AgentTaskStatus.Running)
+                           .Take(6).ToList();
+        recentLogs   = DataService.GetLogs(25).ToList();
+        lastUpdated  = DateTime.Now.ToString("HH:mm:ss");
+    }
+
+    public void Dispose() => DataService.OnDataChanged -= HandleChange;
+
+    private static string FeedIcon(LogLevel l) => l switch
+    {
+        LogLevel.Success  => "bi-check-circle",
+        LogLevel.Warning  => "bi-exclamation-circle",
+        LogLevel.Error    => "bi-x-circle",
+        LogLevel.Critical => "bi-shield-x",
+        LogLevel.Debug    => "bi-bug",
+        _ => "bi-info-circle"
+    };
+
+    private static string RelTime(DateTime dt)
+    {
+        var d = DateTime.UtcNow - dt;
+        return d.TotalSeconds < 60 ? "just now"
+             : d.TotalMinutes < 60 ? $"{(int)d.TotalMinutes}m ago"
+             : d.TotalHours   < 24 ? $"{(int)d.TotalHours}h ago"
+             : dt.ToString("MMM d");
+    }
+}

@@ -1,0 +1,45 @@
+@inject NavigationManager Nav
+@rendermode InteractiveServer
+@implements IDisposable
+
+<header class="topbar">
+    <div class="topbar-left">
+        <span class="topbar-title">@PageTitle</span>
+    </div>
+    <div class="topbar-right">
+        <div class="live-pill">
+            <span class="dot active sm"></span>
+            LIVE
+        </div>
+        <div class="topbar-divider"></div>
+        <span class="topbar-time">@currentTime</span>
+        <button class="topbar-icon-btn" title="Refresh">
+            <i class="bi bi-arrow-clockwise"></i>
+        </button>
+    </div>
+</header>
+
+@code {
+    private string currentTime = "";
+    private Timer? _clockTimer;
+
+    private string PageTitle => Nav.Uri.TrimEnd('/') switch
+    {
+        var u when u.EndsWith("/agents") && u.Contains("/agents/") => "Agent Detail",
+        var u when u.EndsWith("/agents")  => "Agents",
+        var u when u.EndsWith("/tasks")   => "Tasks",
+        var u when u.EndsWith("/logs")    => "Logs",
+        _ => "Dashboard"
+    };
+
+    protected override void OnInitialized()
+    {
+        Tick();
+        _clockTimer = new Timer(_ => InvokeAsync(() => { Tick(); StateHasChanged(); }),
+            null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    private void Tick() => currentTime = DateTime.Now.ToString("HH:mm:ss");
+
+    public void Dispose() => _clockTimer?.Dispose();
+}

@@ -1,0 +1,30 @@
+@* Badge for AgentTaskStatus *@
+
+<span class="badge @CssClass">
+    <i class="bi @Icon"></i>
+    @Status.ToString()
+</span>
+
+@code {
+    [Parameter, EditorRequired] public AgentTaskStatus Status { get; set; }
+
+    private string CssClass => Status switch
+    {
+        AgentTaskStatus.Running   => "running",
+        AgentTaskStatus.Queued    => "queued",
+        AgentTaskStatus.Completed => "completed",
+        AgentTaskStatus.Failed    => "failed",
+        AgentTaskStatus.Cancelled => "cancelled",
+        _ => "queued"
+    };
+
+    private string Icon => Status switch
+    {
+        AgentTaskStatus.Running   => "bi-arrow-repeat",
+        AgentTaskStatus.Queued    => "bi-hourglass",
+        AgentTaskStatus.Completed => "bi-check-circle",
+        AgentTaskStatus.Failed    => "bi-x-circle",
+        AgentTaskStatus.Cancelled => "bi-slash-circle",
+        _ => "bi-circle"
+    };
+}
