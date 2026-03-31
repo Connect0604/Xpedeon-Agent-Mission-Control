@@ -3,10 +3,10 @@
 @implements IDisposable
 @rendermode InteractiveServer
 
-<nav class="sidebar">
+<nav class="sidebar @(IsOpen ? "open" : "")" aria-label="Main navigation">
     <!-- Brand -->
     <div class="sidebar-brand">
-        <div class="brand-icon">
+        <div class="brand-icon" aria-hidden="true">
             <i class="bi bi-broadcast-pin"></i>
         </div>
         <div class="brand-text">
@@ -20,32 +20,32 @@
         <div class="nav-section">Overview</div>
 
         <NavLink class="nav-item" href="/" Match="NavLinkMatch.All">
-            <i class="bi bi-grid-1x2"></i>
+            <i class="bi bi-grid-1x2" aria-hidden="true"></i>
             Dashboard
         </NavLink>
 
         <div class="nav-section">Operations</div>
 
         <NavLink class="nav-item" href="/agents">
-            <i class="bi bi-robot"></i>
+            <i class="bi bi-robot" aria-hidden="true"></i>
             Agents
             @if (errorCount > 0)
             {
-                <span class="nav-badge error">@errorCount</span>
+                <span class="nav-badge error" aria-label="@errorCount errors">@errorCount</span>
             }
         </NavLink>
 
         <NavLink class="nav-item" href="/tasks">
-            <i class="bi bi-list-task"></i>
+            <i class="bi bi-list-task" aria-hidden="true"></i>
             Tasks
             @if (runningCount > 0)
             {
-                <span class="nav-badge info">@runningCount</span>
+                <span class="nav-badge info" aria-label="@runningCount running">@runningCount</span>
             }
         </NavLink>
 
         <NavLink class="nav-item" href="/logs">
-            <i class="bi bi-terminal"></i>
+            <i class="bi bi-terminal" aria-hidden="true"></i>
             Logs
         </NavLink>
     </div>
@@ -55,11 +55,11 @@
         <div class="sys-status-label">System Status</div>
         <div class="sys-status-row">
             <div class="sys-stat">
-                <span class="dot @(errorCount == 0 ? "active" : "error") sm"></span>
+                <span class="dot @(errorCount == 0 ? "active" : "error") sm" aria-hidden="true"></span>
                 <span>@(errorCount == 0 ? "Healthy" : $"{errorCount} issues")</span>
             </div>
             <div class="sys-stat text-muted text-xs">
-                <i class="bi bi-hdd-rack"></i>
+                <i class="bi bi-hdd-rack" aria-hidden="true"></i>
                 @activeCount/@totalCount online
             </div>
         </div>
@@ -67,6 +67,8 @@
 </nav>
 
 @code {
+    [Parameter] public bool IsOpen { get; set; }
+
     private int errorCount;
     private int activeCount;
     private int totalCount;
@@ -88,9 +90,9 @@
     {
         var agents = DataService.GetAgents();
         var tasks  = DataService.GetTasks();
-        errorCount  = agents.Count(a => a.Status is AgentStatus.Error or AgentStatus.Offline);
-        activeCount = agents.Count(a => a.Status is AgentStatus.Active or AgentStatus.Idle);
-        totalCount  = agents.Count;
+        errorCount   = agents.Count(a => a.Status is AgentStatus.Error or AgentStatus.Offline);
+        activeCount  = agents.Count(a => a.Status is AgentStatus.Active or AgentStatus.Idle);
+        totalCount   = agents.Count;
         runningCount = tasks.Count(t => t.Status == AgentTaskStatus.Running);
     }
 

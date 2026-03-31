@@ -4,28 +4,33 @@
 
 <header class="topbar">
     <div class="topbar-left">
+        <button class="mobile-menu-btn" @onclick="OnMenuClick" aria-label="Toggle navigation">
+            <i class="bi bi-list"></i>
+        </button>
         <span class="topbar-title">@PageTitle</span>
     </div>
     <div class="topbar-right">
-        <div class="live-pill">
-            <span class="dot active sm"></span>
+        <div class="live-pill" aria-label="Live data">
+            <span class="dot active sm" aria-hidden="true"></span>
             LIVE
         </div>
-        <div class="topbar-divider"></div>
-        <span class="topbar-time">@currentTime</span>
-        <button class="topbar-icon-btn" title="Refresh">
-            <i class="bi bi-arrow-clockwise"></i>
+        <div class="topbar-divider" aria-hidden="true"></div>
+        <span class="topbar-time" aria-live="off">@currentTime</span>
+        <button class="topbar-icon-btn" title="Refresh" aria-label="Refresh">
+            <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
         </button>
     </div>
 </header>
 
 @code {
+    [Parameter] public EventCallback OnMenuClick { get; set; }
+
     private string currentTime = "";
     private Timer? _clockTimer;
 
     private string PageTitle => Nav.Uri.TrimEnd('/') switch
     {
-        var u when u.EndsWith("/agents") && u.Contains("/agents/") => "Agent Detail",
+        var u when u.Contains("/agents/") => "Agent Detail",
         var u when u.EndsWith("/agents")  => "Agents",
         var u when u.EndsWith("/tasks")   => "Tasks",
         var u when u.EndsWith("/logs")    => "Logs",

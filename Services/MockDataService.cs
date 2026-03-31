@@ -326,7 +326,7 @@ public class MockDataService : IDisposable
 
         return new AgentTask
         {
-            Id = $"t-{Guid.NewGuid():N[..8]}",
+            Id = $"t-{Guid.NewGuid():N}"[..10],
             AgentId = agent.Id,
             AgentName = agent.Name,
             Name = name,
