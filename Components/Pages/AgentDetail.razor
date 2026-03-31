@@ -1,6 +1,8 @@
 @page "/agents/{AgentId}"
 @rendermode InteractiveServer
 @implements IDisposable
+@inject AgentService AgentService
+@inject TaskService TaskService
 @inject MockDataService DataService
 @inject NavigationManager Nav
 
@@ -29,25 +31,34 @@ else
                         <h1 class="page-title" style="margin-bottom:0;">@agent.Name</h1>
                         <StatusBadge Status="@agent.Status" />
                         <TypeBadge Type="@agent.Type" />
+                        @if (agent.IsCircuitOpen)
+                        {
+                            <span class="badge badge-danger"><i class="bi bi-shield-x"></i> Circuit Open</span>
+                        }
                     </div>
                     <div class="text-sm text-muted font-mono">@agent.HostMachine · v@agent.Version</div>
+                    @if (!string.IsNullOrWhiteSpace(agent.Description))
+                    {
+                        <div class="text-sm text-secondary mt-1">@agent.Description</div>
+                    }
                 </div>
             </div>
-            <a href="/agents" class="btn btn-ghost btn-sm"><i class="bi bi-arrow-left"></i> Back</a>
+            <div style="display:flex;gap:var(--s2);">
+                <button class="btn btn-primary" @onclick="OpenRunModal"
+                        disabled="@(agent.Status == AgentStatus.Offline || agent.IsCircuitOpen)">
+                    <i class="bi bi-play-fill"></i> Run Task
+                </button>
+                <button class="btn btn-ghost btn-sm" @onclick='() => Nav.NavigateTo($"/agents/{AgentId}/edit")'>
+                    <i class="bi bi-pencil"></i>
+                </button>
+                <a href="/agents" class="btn btn-ghost btn-sm"><i class="bi bi-arrow-left"></i></a>
+            </div>
         </div>
 
         <div class="detail-meta">
             <div class="detail-meta-item">
                 <span class="detail-meta-label">Uptime</span>
                 <span class="detail-meta-value">@agent.UptimeFormatted</span>
-            </div>
-            <div class="detail-meta-item">
-                <span class="detail-meta-label">Started</span>
-                <span class="detail-meta-value">@agent.StartedAt.ToString("MMM d, HH:mm")</span>
-            </div>
-            <div class="detail-meta-item">
-                <span class="detail-meta-label">Last Seen</span>
-                <span class="detail-meta-value">@RelTime(agent.LastSeen)</span>
             </div>
             <div class="detail-meta-item">
                 <span class="detail-meta-label">Success Rate</span>
@@ -61,50 +72,143 @@ else
                 <span class="detail-meta-label">Failed</span>
                 <span class="detail-meta-value text-error">@agent.TasksFailed</span>
             </div>
+            <div class="detail-meta-item">
+                <span class="detail-meta-label">Tokens Used</span>
+                <span class="detail-meta-value">@agent.TotalTokensUsed.ToString("N0")</span>
+            </div>
+            <div class="detail-meta-item">
+                <span class="detail-meta-label">Total Cost</span>
+                <span class="detail-meta-value">$@agent.TotalCostUSD.ToString("F4")</span>
+            </div>
+            <div class="detail-meta-item">
+                <span class="detail-meta-label">LLM Provider</span>
+                <span class="detail-meta-value">@(agent.LLMProvider?.Name ?? "—")</span>
+            </div>
+            <div class="detail-meta-item">
+                <span class="detail-meta-label">Model</span>
+                <span class="detail-meta-value font-mono text-sm">@(agent.LLMProvider?.ModelName ?? "—")</span>
+            </div>
         </div>
     </div>
 
-    <div class="g-2 mb-5">
-        <!-- Metrics -->
-        <div class="card card-pad">
-            <div class="section-head"><i class="bi bi-speedometer2"></i> Live Metrics</div>
-            <div style="display:flex; flex-direction:column; gap:var(--s4);">
-                <!-- CPU -->
-                <div>
-                    <div class="flex justify-between mb-2">
-                        <span class="text-sm text-secondary">CPU Usage</span>
-                        <span style="font-size:18px; font-weight:700; color:@(agent.CpuUsage >= 85 ? "var(--c-error)" : "var(--txt-primary)");">
-                            @agent.CpuUsage.ToString("F1")%
-                        </span>
+    <!-- Tabs -->
+    <div class="tab-bar mb-0">
+        <button class="tab @(activeTab == "overview" ? "on" : "")" @onclick='() => activeTab = "overview"'>Overview</button>
+        <button class="tab @(activeTab == "tasks" ? "on" : "")" @onclick='() => activeTab = "tasks"'>
+            Tasks <span class="tab-count">@agentTasks.Count</span>
+        </button>
+        <button class="tab @(activeTab == "prompt" ? "on" : "")" @onclick='() => activeTab = "prompt"'>System Prompt</button>
+        <button class="tab @(activeTab == "memory" ? "on" : "")" @onclick='() => activeTab = "memory"'>Memory</button>
+        <button class="tab @(activeTab == "logs" ? "on" : "")" @onclick='() => activeTab = "logs"'>
+            Logs <span class="tab-count">@agentLogs.Count</span>
+        </button>
+    </div>
+
+    <!-- Overview Tab -->
+    @if (activeTab == "overview")
+    {
+        <div class="g-2 mt-4">
+            <!-- Live Metrics -->
+            <div class="card card-pad">
+                <div class="section-head"><i class="bi bi-speedometer2"></i> Live Metrics</div>
+                <div style="display:flex; flex-direction:column; gap:var(--s4);">
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <span class="text-sm text-secondary">CPU Usage</span>
+                            <span style="font-size:18px;font-weight:700;color:@(agent.CpuUsage >= 85 ? "var(--c-error)" : "var(--txt-primary)");">
+                                @agent.CpuUsage.ToString("F1")%
+                            </span>
+                        </div>
+                        <div class="prog-track" style="height:8px;">
+                            <div class="prog-fill @(agent.CpuUsage >= 85 ? "failed" : "running")" style="width:@agent.CpuUsage.ToString("F0")%"></div>
+                        </div>
                     </div>
-                    <div class="prog-track" style="height:8px;">
-                        <div class="prog-fill @(agent.CpuUsage >= 85 ? "failed" : "running")"
-                             style="width:@agent.CpuUsage.ToString("F0")%"></div>
+                    <div>
+                        <div class="flex justify-between mb-2">
+                            <span class="text-sm text-secondary">Memory</span>
+                            <span style="font-size:18px;font-weight:700;">
+                                @agent.MemoryUsageMB.ToString("F0")
+                                <span class="text-muted" style="font-size:13px;font-weight:400;">/ @agent.MemoryLimitMB.ToString("F0") MB</span>
+                            </span>
+                        </div>
+                        <div class="prog-track" style="height:8px;">
+                            <div class="prog-fill" style="width:@MemPct.ToString("F0")%;background:linear-gradient(90deg,#8b5cf6,#6366f1);"></div>
+                        </div>
                     </div>
+                    @if (agent.CpuHistory.Any())
+                    {
+                        <div>
+                            <div class="text-sm text-secondary mb-2">CPU History</div>
+                            <div class="sparkline">
+                                @foreach (var v in agent.CpuHistory)
+                                {
+                                    var h = Math.Max(2, v / 100.0 * 32);
+                                    <div class="spark-bar" style="height:@h.ToString("F0")px;opacity:@(0.4 + v/100*0.6);" title="@v%"></div>
+                                }
+                            </div>
+                        </div>
+                    }
                 </div>
-                <!-- Memory -->
-                <div>
-                    <div class="flex justify-between mb-2">
-                        <span class="text-sm text-secondary">Memory</span>
-                        <span style="font-size:18px; font-weight:700;">
-                            @agent.MemoryUsageMB.ToString("F0") <span class="text-muted" style="font-size:13px;font-weight:400;">/ @agent.MemoryLimitMB.ToString("F0") MB</span>
+            </div>
+
+            <!-- Config & Status -->
+            <div class="card card-pad">
+                <div class="section-head"><i class="bi bi-sliders"></i> Configuration</div>
+                <div class="config-grid">
+                    <div class="config-item">
+                        <span class="text-muted text-xs">Memory</span>
+                        <span class="text-sm">
+                            @(agent.ShortTermMemoryEnabled ? "Short " : "")
+                            @(agent.LongTermMemoryEnabled ? "Long " : "")
+                            @(agent.ShareMemoryWithSwarm ? "Swarm" : "")
+                            @((!agent.ShortTermMemoryEnabled && !agent.LongTermMemoryEnabled) ? "None" : "")
                         </span>
                     </div>
-                    <div class="prog-track" style="height:8px;">
-                        <div class="prog-fill mem"
-                             style="width:@MemPct.ToString("F0")%; background:linear-gradient(90deg,#8b5cf6,#6366f1);"></div>
+                    <div class="config-item">
+                        <span class="text-muted text-xs">Approval</span>
+                        <span class="text-sm">@(agent.RequiresApproval ? "Required" : "Auto")</span>
+                    </div>
+                    <div class="config-item">
+                        <span class="text-muted text-xs">Circuit Breaker</span>
+                        <span class="text-sm @(agent.IsCircuitOpen ? "text-error" : "")">
+                            @(agent.IsCircuitOpen ? "OPEN" : agent.CircuitBreakerEnabled ? $"Armed ({agent.CircuitBreakerFailureThreshold})" : "Off")
+                        </span>
+                    </div>
+                    <div class="config-item">
+                        <span class="text-muted text-xs">Max Retries</span>
+                        <span class="text-sm">@agent.MaxRetries</span>
+                    </div>
+                    <div class="config-item">
+                        <span class="text-muted text-xs">Timeout</span>
+                        <span class="text-sm">@agent.TimeoutSeconds s</span>
+                    </div>
+                    <div class="config-item">
+                        <span class="text-muted text-xs">Token Budget/Day</span>
+                        <span class="text-sm">@(agent.TokenBudgetPerDay.HasValue ? agent.TokenBudgetPerDay.Value.ToString("N0") : "Unlimited")</span>
                     </div>
                 </div>
 
-                @if (agent.CpuHistory.Any())
+                @if (agent.Tools.Any())
                 {
-                    <div>
-                        <div class="text-sm text-secondary mb-2">CPU History (last 20 ticks)</div>
-                        <div class="sparkline">
-                            @foreach (var v in agent.CpuHistory)
+                    <div class="mt-4">
+                        <div class="text-muted text-xs mb-2">Tools</div>
+                        <div style="display:flex;flex-wrap:wrap;gap:var(--s1);">
+                            @foreach (var tool in agent.Tools.Where(t => t.IsEnabled))
                             {
-                                var h = Math.Max(2, v / 100.0 * 32);
-                                <div class="spark-bar" style="height:@h.ToString("F0")px; opacity:@(0.4 + v/100*0.6);" title="@v%"></div>
+                                <span class="tag">@tool.Name</span>
+                            }
+                        </div>
+                    </div>
+                }
+
+                @if (agent.MCPServers.Any())
+                {
+                    <div class="mt-4">
+                        <div class="text-muted text-xs mb-2">MCP Servers</div>
+                        <div style="display:flex;flex-wrap:wrap;gap:var(--s1);">
+                            @foreach (var mcp in agent.MCPServers.Where(m => m.IsEnabled))
+                            {
+                                <span class="tag">@(mcp.MCPServer?.Name ?? mcp.MCPServerId)</span>
                             }
                         </div>
                     </div>
@@ -112,135 +216,469 @@ else
             </div>
         </div>
 
-        <!-- Current Status -->
-        <div class="card card-pad">
-            <div class="section-head"><i class="bi bi-broadcast"></i> Current State</div>
-            <div style="display:flex; flex-direction:column; gap:var(--s4);">
-                <div>
-                    <div class="detail-meta-label mb-1">Current Task</div>
-                    <div style="font-size:14px; color:var(--txt-primary); font-weight:500;">@agent.CurrentTask</div>
+        <!-- Running task progress -->
+        @{var runningTask = agentTasks.FirstOrDefault(t => t.Status == AgentTaskStatus.Running);}
+        @if (runningTask != null)
+        {
+            <div class="card card-pad mt-4 running-task-card">
+                <div class="section-head"><i class="bi bi-hourglass-split text-accent"></i> Running Now</div>
+                <div class="text-primary font-medium mb-2">@runningTask.Name</div>
+                <div class="prog-wrap">
+                    <div class="prog-track"><div class="prog-fill running" style="width:@runningTask.Progress%"></div></div>
+                    <span class="prog-label">@runningTask.Progress%</span>
                 </div>
-                @{
-                    var runningTask = agentTasks.FirstOrDefault(t => t.Status == AgentTaskStatus.Running);
-                }
-                @if (runningTask != null)
+                @if (!string.IsNullOrWhiteSpace(runningTask.Input))
                 {
-                    <div>
-                        <div class="detail-meta-label mb-1">Progress</div>
-                        <div class="prog-wrap">
-                            <div class="prog-track">
-                                <div class="prog-fill running" style="width:@runningTask.Progress%"></div>
-                            </div>
-                            <span class="prog-label">@runningTask.Progress%</span>
+                    <div class="text-xs text-muted mt-2 font-mono truncate">Input: @runningTask.Input</div>
+                }
+            </div>
+        }
+
+        <!-- Pending approvals -->
+        @{var pendingTasks = agentTasks.Where(t => t.Status == AgentTaskStatus.PendingApproval).ToList();}
+        @if (pendingTasks.Any())
+        {
+            <div class="card card-pad mt-4" style="border-color:var(--c-warning-border);">
+                <div class="section-head"><i class="bi bi-hourglass text-warning"></i> Pending Approval (@pendingTasks.Count)</div>
+                @foreach (var t in pendingTasks)
+                {
+                    <div class="approval-row">
+                        <div>
+                            <div class="text-sm font-medium text-primary">@t.Name</div>
+                            @if (!string.IsNullOrWhiteSpace(t.Input))
+                            {
+                                <div class="text-xs text-muted font-mono mt-1">@t.Input[..Math.Min(120, t.Input.Length)]@(t.Input.Length > 120 ? "..." : "")</div>
+                            }
                         </div>
-                        @if (runningTask.RecordsTotal > 0)
+                        <div style="display:flex;gap:var(--s2);flex-shrink:0;">
+                            <button class="btn btn-sm btn-ghost text-error" @onclick="() => CancelTask(t.Id)">
+                                <i class="bi bi-x-lg"></i> Reject
+                            </button>
+                            <button class="btn btn-sm btn-primary" @onclick="() => ApproveTask(t.Id)">
+                                <i class="bi bi-check-lg"></i> Approve
+                            </button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    }
+
+    <!-- Tasks Tab -->
+    @if (activeTab == "tasks")
+    {
+        <div class="mt-4">
+            @if (!agentTasks.Any())
+            {
+                <div class="card card-pad empty-state">
+                    <div class="empty-icon"><i class="bi bi-inbox"></i></div>
+                    <div class="empty-title">No tasks yet</div>
+                    <div class="empty-desc">Click Run Task to execute this agent.</div>
+                    <button class="btn btn-primary mt-4" @onclick="OpenRunModal"><i class="bi bi-play-fill"></i> Run Task</button>
+                </div>
+            }
+            else
+            {
+                <div class="task-list">
+                    @foreach (var task in agentTasks)
+                    {
+                        <div class="task-card @(selectedTask?.Id == task.Id ? "task-card--selected" : "")"
+                             @onclick="() => SelectTask(task)">
+                            <div class="task-card__header">
+                                <TaskStatusBadge Status="@task.Status" />
+                                <PriorityBadge Priority="@task.Priority" />
+                                <span class="text-sm font-medium text-primary ml-2">@task.Name</span>
+                                <span class="text-xs text-muted ml-auto">@RelTime(task.CreatedAt)</span>
+                            </div>
+                            @if (task.Status == AgentTaskStatus.Running)
+                            {
+                                <div class="prog-wrap mt-2">
+                                    <div class="prog-track"><div class="prog-fill running" style="width:@task.Progress%"></div></div>
+                                    <span class="prog-label">@task.Progress%</span>
+                                </div>
+                            }
+                            @if (task.Status == AgentTaskStatus.Completed && !string.IsNullOrWhiteSpace(task.Output))
+                            {
+                                <div class="task-output-preview mt-2">@task.Output[..Math.Min(200, task.Output.Length)]@(task.Output.Length > 200 ? "..." : "")</div>
+                            }
+                            @if (task.Status == AgentTaskStatus.Failed)
+                            {
+                                <div class="text-xs text-error mt-1"><i class="bi bi-exclamation-circle"></i> @task.ErrorMessage</div>
+                            }
+                            @if (task.TotalTokens > 0)
+                            {
+                                <div class="task-meta mt-2">
+                                    <span><i class="bi bi-hash"></i> @task.TotalTokens.ToString("N0") tokens</span>
+                                    <span><i class="bi bi-currency-dollar"></i> $@task.CostUSD.ToString("F5")</span>
+                                    @if (!string.IsNullOrWhiteSpace(task.ModelUsed))
+                                    {
+                                        <span class="font-mono">@task.ModelUsed</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- Task Detail Panel -->
+        @if (selectedTask != null)
+        {
+            <div class="card card-pad mt-4 task-detail-panel">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s4);">
+                    <h3 class="section-title">@selectedTask.Name</h3>
+                    <button class="btn btn-ghost btn-sm" @onclick="() => selectedTask = null"><i class="bi bi-x-lg"></i></button>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(selectedTask.Input))
+                {
+                    <div class="form-group">
+                        <label class="form-label text-muted text-xs">Input</label>
+                        <div class="output-box">@selectedTask.Input</div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(selectedTask.Output))
+                {
+                    <div class="form-group">
+                        <label class="form-label text-muted text-xs">Output</label>
+                        <div class="output-box output-box--success">@selectedTask.Output</div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(selectedTask.ErrorMessage))
+                {
+                    <div class="form-group">
+                        <label class="form-label text-muted text-xs">Error</label>
+                        <div class="output-box output-box--error">@selectedTask.ErrorMessage</div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(selectedTask.ExecutionTrace))
+                {
+                    <div class="form-group">
+                        <label class="form-label text-muted text-xs">Execution Trace</label>
+                        <div class="output-box font-mono text-xs">@selectedTask.ExecutionTrace</div>
+                    </div>
+                }
+
+                <!-- Token stats -->
+                @if (selectedTask.TotalTokens > 0)
+                {
+                    <div class="token-stats">
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Prompt Tokens</span>
+                            <span class="font-mono">@selectedTask.PromptTokens.ToString("N0")</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Completion Tokens</span>
+                            <span class="font-mono">@selectedTask.CompletionTokens.ToString("N0")</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Total Tokens</span>
+                            <span class="font-mono font-medium">@selectedTask.TotalTokens.ToString("N0")</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Cost</span>
+                            <span class="font-mono">$@selectedTask.CostUSD.ToString("F6")</span>
+                        </div>
+                        @if (selectedTask.ConfidenceScore.HasValue)
                         {
-                            <div class="text-xs text-muted mt-1">
-                                @runningTask.RecordsProcessed.ToString("N0") / @runningTask.RecordsTotal.ToString("N0") records
+                            <div class="token-stat">
+                                <span class="text-muted text-xs">Confidence</span>
+                                <span class="font-mono">@((selectedTask.ConfidenceScore.Value * 100).ToString("F0"))%</span>
                             </div>
                         }
                     </div>
                 }
-                <div>
-                    <div class="detail-meta-label mb-1">Queued Tasks</div>
-                    <span style="font-size:20px; font-weight:700;">
-                        @agentTasks.Count(t => t.Status == AgentTaskStatus.Queued)
-                    </span>
-                </div>
-            </div>
-        </div>
-    </div>
 
-    <!-- Task History -->
-    <div class="section-head"><i class="bi bi-list-task"></i> Task History</div>
-    <div class="card mb-5" style="padding:0; overflow:hidden;">
-        @if (!agentTasks.Any())
-        {
-            <div class="empty-state" style="padding:var(--s8);">
-                <div class="empty-icon" style="font-size:28px;"><i class="bi bi-inbox"></i></div>
-                <div class="empty-title" style="font-size:14px;">No tasks yet</div>
-            </div>
-        }
-        else
-        {
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Task Name</th>
-                        <th>Status</th>
-                        <th>Priority</th>
-                        <th>Progress</th>
-                        <th>Started</th>
-                        <th>Notes</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var task in agentTasks)
-                    {
-                        <TaskRow Task="@task" />
-                    }
-                </tbody>
-            </table>
-        }
-    </div>
-
-    <!-- Recent Logs -->
-    <div class="section-head"><i class="bi bi-terminal"></i> Agent Logs</div>
-    <div class="card" style="padding:0; overflow:hidden;">
-        @if (!agentLogs.Any())
-        {
-            <div class="empty-state" style="padding:var(--s8);">
-                <div class="empty-icon" style="font-size:28px;"><i class="bi bi-terminal"></i></div>
-                <div class="empty-title" style="font-size:14px;">No logs</div>
-            </div>
-        }
-        else
-        {
-            <div style="max-height:400px; overflow-y:auto;">
-                @foreach (var log in agentLogs)
+                <!-- Feedback -->
+                @if (selectedTask.Status == AgentTaskStatus.Completed && selectedTask.FeedbackRating == null)
                 {
-                    <div class="log-row lvl-@log.Level.ToString().ToLower()">
-                        <div class="log-indicator @log.Level.ToString().ToLower()"></div>
-                        <div class="log-ts">@log.Timestamp.ToString("HH:mm:ss.fff")</div>
-                        <div class="log-lvl @log.Level.ToString().ToUpper()">@log.Level.ToString().ToUpper()</div>
-                        <div class="log-src">@log.AgentName</div>
-                        <div class="log-msg">@log.Message</div>
+                    <div class="feedback-row mt-4">
+                        <span class="text-muted text-xs">Was this output useful?</span>
+                        <button class="btn btn-ghost btn-sm text-success" @onclick="() => SubmitFeedback(selectedTask, 5)">
+                            <i class="bi bi-hand-thumbs-up"></i> Yes
+                        </button>
+                        <button class="btn btn-ghost btn-sm text-error" @onclick="() => SubmitFeedback(selectedTask, 1)">
+                            <i class="bi bi-hand-thumbs-down"></i> No
+                        </button>
+                    </div>
+                }
+                @if (selectedTask.FeedbackRating != null)
+                {
+                    <div class="text-xs text-muted mt-3">
+                        <i class="bi bi-check-circle text-success"></i> Feedback recorded — used for agent learning
                     </div>
                 }
             </div>
         }
+    }
+
+    <!-- System Prompt Tab -->
+    @if (activeTab == "prompt")
+    {
+        <div class="card card-pad mt-4">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s4);">
+                <div class="section-head"><i class="bi bi-chat-square-text"></i> Active System Prompt</div>
+                <span class="text-xs text-muted">~@EstimateTokens(agent.SystemPrompt) tokens</span>
+            </div>
+            <div class="prompt-preview">@(string.IsNullOrWhiteSpace(agent.SystemPrompt) ? "No system prompt configured." : agent.SystemPrompt)</div>
+        </div>
+
+        @if (agent.PromptHistory.Any())
+        {
+            <div class="card card-pad mt-4">
+                <div class="section-head"><i class="bi bi-clock-history"></i> Prompt History</div>
+                <div class="prompt-history-list">
+                    @foreach (var ph in agent.PromptHistory.OrderByDescending(p => p.Version))
+                    {
+                        <div class="prompt-history-item @(ph.IsActive ? "prompt-history-item--active" : "")">
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <div>
+                                    <span class="text-sm font-medium">v@ph.Version</span>
+                                    @if (ph.IsActive) { <span class="badge badge-accent ml-2 text-xs">Active</span> }
+                                    <span class="text-xs text-muted ml-2">@ph.ChangeReason</span>
+                                    @if (!string.IsNullOrWhiteSpace(ph.ChangeNote))
+                                    {
+                                        <span class="text-xs text-muted ml-2">— @ph.ChangeNote</span>
+                                    }
+                                </div>
+                                <span class="text-xs text-muted">@ph.CreatedAt.ToString("MMM d, HH:mm")</span>
+                            </div>
+                            @if (ph.SuccessRateAtChange.HasValue)
+                            {
+                                <div class="text-xs text-muted mt-1">Success rate at change: @ph.SuccessRateAtChange.Value.ToString("F1")%</div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+
+    <!-- Memory Tab -->
+    @if (activeTab == "memory")
+    {
+        <div class="card card-pad mt-4">
+            <div class="section-head"><i class="bi bi-memory"></i> Agent Memory</div>
+            @if (!agentMemories.Any())
+            {
+                <div class="empty-state" style="padding:var(--s6);">
+                    <div class="empty-icon"><i class="bi bi-memory"></i></div>
+                    <div class="empty-title">No memories stored</div>
+                    <div class="empty-desc">Memories are created as the agent runs tasks.</div>
+                </div>
+            }
+            else
+            {
+                <div class="memory-list">
+                    @foreach (var mem in agentMemories)
+                    {
+                        <div class="memory-item">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s1);">
+                                <span class="tag">@mem.Type</span>
+                                <span class="text-xs text-muted">@RelTime(mem.CreatedAt)</span>
+                            </div>
+                            <div class="text-xs font-mono text-muted mb-1">@mem.Key</div>
+                            <div class="text-sm text-secondary">@mem.Content[..Math.Min(200, mem.Content.Length)]@(mem.Content.Length > 200 ? "..." : "")</div>
+                            <div class="text-xs text-muted mt-1">Accessed @mem.AccessCount times</div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+
+    <!-- Logs Tab -->
+    @if (activeTab == "logs")
+    {
+        <div class="card mt-4" style="padding:0;overflow:hidden;">
+            @if (!agentLogs.Any())
+            {
+                <div class="empty-state" style="padding:var(--s8);">
+                    <div class="empty-icon"><i class="bi bi-terminal"></i></div>
+                    <div class="empty-title">No logs</div>
+                </div>
+            }
+            else
+            {
+                <div style="max-height:500px;overflow-y:auto;">
+                    @foreach (var log in agentLogs)
+                    {
+                        <div class="log-row lvl-@log.Level.ToString().ToLower()">
+                            <div class="log-indicator @log.Level.ToString().ToLower()"></div>
+                            <div class="log-ts">@log.Timestamp.ToString("HH:mm:ss.fff")</div>
+                            <div class="log-lvl">@log.Level.ToString().ToUpper()</div>
+                            <div class="log-src">@log.AgentName</div>
+                            <div class="log-msg">@log.Message</div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+}
+
+<!-- Run Task Modal -->
+@if (showRunModal)
+{
+    <div class="modal-backdrop" @onclick="CloseRunModal">
+        <div class="modal modal--lg" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <div>
+                    <h2 class="modal-title"><i class="bi bi-play-fill text-accent"></i> Run Task</h2>
+                    <p class="text-muted text-sm">@agent?.Name · @(agent?.LLMProvider?.ModelName ?? "No model")</p>
+                </div>
+                <button class="modal-close" @onclick="CloseRunModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Task Name <span class="text-error">*</span></label>
+                    <input class="form-input" @bind="runTaskName" placeholder="e.g. Validate invoice batch #42" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">
+                        Input / Instructions <span class="text-error">*</span>
+                        <span class="text-muted text-xs ml-2">— what should the agent do right now?</span>
+                    </label>
+                    <textarea class="form-input prompt-editor" rows="8" @bind="runTaskInput"
+                              placeholder="Describe the task in detail. The agent will receive this as a user message alongside its system prompt."></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Priority</label>
+                        <select class="form-input" @bind="runPriority">
+                            @foreach (var p in Enum.GetValues<TaskPriority>())
+                            {
+                                <option value="@p">@p</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                @if (agent?.RequiresApproval == true)
+                {
+                    <div class="alert alert-warning">
+                        <i class="bi bi-shield-exclamation"></i>
+                        This agent requires human approval. Task will be queued until you approve it.
+                    </div>
+                }
+                @if (!string.IsNullOrWhiteSpace(runError))
+                {
+                    <div class="alert alert-error">@runError</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" @onclick="CloseRunModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="RunTask" disabled="@isRunning">
+                    @if (isRunning) { <span class="spinner"></span> }
+                    <i class="bi bi-play-fill"></i> @(isRunning ? "Starting..." : (agent?.RequiresApproval == true ? "Submit for Approval" : "Run Now"))
+                </button>
+            </div>
+        </div>
     </div>
 }
 
 @code {
     [Parameter] public string AgentId { get; set; } = "";
 
-    private Agent?          agent      = null;
+    private Agent? agent;
     private List<AgentTask> agentTasks = new();
-    private List<LogEntry>  agentLogs  = new();
+    private List<LogEntry> agentLogs = new();
+    private List<AgentMemory> agentMemories = new();
+    private string activeTab = "overview";
+    private AgentTask? selectedTask;
 
-    protected override void OnInitialized()
+    // Run modal
+    private bool showRunModal;
+    private string runTaskName = "";
+    private string runTaskInput = "";
+    private TaskPriority runPriority = TaskPriority.Medium;
+    private bool isRunning;
+    private string runError = "";
+
+    private Timer? _refreshTimer;
+
+    protected override async Task OnInitializedAsync()
     {
-        Refresh();
-        DataService.OnDataChanged += HandleChange;
+        await RefreshAsync();
+        _refreshTimer = new Timer(async _ =>
+        {
+            await RefreshAsync();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
     }
 
-    protected override void OnParametersSet() => Refresh();
+    protected override async Task OnParametersSetAsync() => await RefreshAsync();
 
-    private void HandleChange()
+    private async Task RefreshAsync()
     {
-        Refresh();
-        InvokeAsync(StateHasChanged);
+        agent = await AgentService.GetByIdAsync(AgentId);
+        if (agent == null) return;
+        agentTasks = await TaskService.GetForAgentAsync(AgentId, 50);
+        agentLogs = DataService.GetLogsForAgent(AgentId, 50).ToList();
+
+        // Refresh selected task
+        if (selectedTask != null)
+            selectedTask = agentTasks.FirstOrDefault(t => t.Id == selectedTask.Id) ?? selectedTask;
     }
 
-    private void Refresh()
+    private void OpenRunModal()
     {
-        agent      = DataService.GetAgent(AgentId);
-        agentTasks = DataService.GetTasksForAgent(AgentId).ToList();
-        agentLogs  = DataService.GetLogsForAgent(AgentId, 30).ToList();
+        runTaskName = "";
+        runTaskInput = "";
+        runPriority = TaskPriority.Medium;
+        runError = "";
+        showRunModal = true;
     }
 
-    public void Dispose() => DataService.OnDataChanged -= HandleChange;
+    private void CloseRunModal() { showRunModal = false; runError = ""; }
+
+    private async Task RunTask()
+    {
+        if (string.IsNullOrWhiteSpace(runTaskName)) { runError = "Task name is required."; return; }
+        if (string.IsNullOrWhiteSpace(runTaskInput)) { runError = "Input is required."; return; }
+
+        isRunning = true;
+        runError = "";
+        try
+        {
+            var task = await TaskService.CreateAndRunAsync(AgentId, runTaskName, runTaskInput, runPriority);
+            CloseRunModal();
+            activeTab = "tasks";
+            selectedTask = task;
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            runError = ex.Message;
+        }
+        finally { isRunning = false; }
+    }
+
+    private async Task ApproveTask(string taskId)
+    {
+        await TaskService.ApproveTaskAsync(taskId);
+        await RefreshAsync();
+    }
+
+    private async Task CancelTask(string taskId)
+    {
+        await TaskService.CancelTaskAsync(taskId);
+        await RefreshAsync();
+    }
+
+    private void SelectTask(AgentTask task)
+        => selectedTask = selectedTask?.Id == task.Id ? null : task;
+
+    private async Task SubmitFeedback(AgentTask task, int rating)
+    {
+        await TaskService.SubmitFeedbackAsync(task.Id, rating, null, null);
+        await RefreshAsync();
+    }
+
+    public void Dispose() => _refreshTimer?.Dispose();
 
     private string StatusClass => agent?.Status switch
     {
@@ -255,23 +693,16 @@ else
     private double MemPct => agent is { MemoryLimitMB: > 0 }
         ? agent.MemoryUsageMB / agent.MemoryLimitMB * 100 : 0;
 
-    private (string icon, string bg, string color, string border) TypeStyleTuple
+    private (string icon, string bg, string color, string border) TypeStyleTuple => agent?.Type switch
     {
-        get
-        {
-            if (agent == null)
-                return ("bi-robot", "rgba(100,116,139,0.12)", "#94a3b8", "rgba(100,116,139,0.2)");
-            return agent.Type switch
-            {
-                AgentType.DataSync      => ("bi-arrow-repeat",   "rgba(6,182,212,0.12)",   "#06b6d4", "rgba(6,182,212,0.25)"),
-                AgentType.Reporting     => ("bi-file-bar-graph", "rgba(167,139,250,0.12)", "#a78bfa", "rgba(167,139,250,0.25)"),
-                AgentType.Integration   => ("bi-plugin",         "rgba(251,146,60,0.12)",  "#fb923c", "rgba(251,146,60,0.25)"),
-                AgentType.Notification  => ("bi-bell",           "rgba(250,204,21,0.12)",  "#facc15", "rgba(250,204,21,0.25)"),
-                AgentType.Processing    => ("bi-cpu",            "rgba(96,165,250,0.12)",  "#60a5fa", "rgba(96,165,250,0.25)"),
-                _ => ("bi-robot", "rgba(100,116,139,0.12)", "#94a3b8", "rgba(100,116,139,0.2)")
-            };
-        }
-    }
+        AgentType.DataSync     => ("bi-arrow-repeat",   "rgba(6,182,212,0.12)",   "#06b6d4", "rgba(6,182,212,0.25)"),
+        AgentType.Reporting    => ("bi-file-bar-graph", "rgba(167,139,250,0.12)", "#a78bfa", "rgba(167,139,250,0.25)"),
+        AgentType.Integration  => ("bi-plugin",         "rgba(251,146,60,0.12)",  "#fb923c", "rgba(251,146,60,0.25)"),
+        AgentType.Notification => ("bi-bell",           "rgba(250,204,21,0.12)",  "#facc15", "rgba(250,204,21,0.25)"),
+        AgentType.Processing   => ("bi-cpu",            "rgba(96,165,250,0.12)",  "#60a5fa", "rgba(96,165,250,0.25)"),
+        AgentType.Custom       => ("bi-braces",         "rgba(168,162,158,0.12)", "#a8a29e", "rgba(168,162,158,0.25)"),
+        _ => ("bi-robot", "rgba(100,116,139,0.12)", "#94a3b8", "rgba(100,116,139,0.2)")
+    } ?? ("bi-robot", "rgba(100,116,139,0.12)", "#94a3b8", "rgba(100,116,139,0.2)");
 
     private string TypeIcon   => TypeStyleTuple.icon;
     private string TypeBg     => TypeStyleTuple.bg;
@@ -281,8 +712,12 @@ else
     private static string RelTime(DateTime dt)
     {
         var d = DateTime.UtcNow - dt;
-        return d.TotalSeconds < 60 ? "just now"
-             : d.TotalMinutes < 60 ? $"{(int)d.TotalMinutes}m ago"
-             : $"{(int)d.TotalHours}h ago";
+        return d.TotalSeconds < 60  ? "just now"
+             : d.TotalMinutes < 60  ? $"{(int)d.TotalMinutes}m ago"
+             : d.TotalHours   < 24  ? $"{(int)d.TotalHours}h ago"
+             : $"{(int)d.TotalDays}d ago";
     }
+
+    private static int EstimateTokens(string text)
+        => string.IsNullOrWhiteSpace(text) ? 0 : (int)(text.Length / 3.8);
 }

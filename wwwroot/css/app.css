@@ -1498,6 +1498,94 @@ body::before {
 }
 .btn-danger:hover { background: var(--c-error); color: #fff; }
 
+/* ================================================================
+   PHASE 3 — Execution Engine UI
+   ================================================================ */
+
+/* ── Task Card ───────────────────────────────────────────────────── */
+.task-list { display: flex; flex-direction: column; gap: var(--s3); }
+.task-card {
+    background: var(--bg-panel); border: 1px solid var(--border-subtle);
+    border-radius: var(--r3); padding: var(--s4);
+    cursor: pointer; transition: border-color .15s, box-shadow .15s;
+}
+.task-card:hover { border-color: var(--border-default); }
+.task-card--selected { border-color: var(--accent-border); box-shadow: var(--accent-shadow); }
+.task-card__header { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.task-output-preview {
+    font-size: .8rem; color: var(--txt-secondary); line-height: 1.5;
+    padding: var(--s2) var(--s3); background: var(--bg-elevated);
+    border-radius: var(--r2); border-left: 2px solid var(--c-active);
+}
+.task-meta { display: flex; gap: var(--s4); font-size: .75rem; color: var(--txt-muted); }
+.task-meta i { margin-right: 3px; }
+
+/* ── Task Detail Panel ───────────────────────────────────────────── */
+.task-detail-panel { border-color: var(--accent-border); }
+
+/* ── Output Box ──────────────────────────────────────────────────── */
+.output-box {
+    background: var(--bg-input); border: 1px solid var(--border-subtle);
+    border-radius: var(--r2); padding: var(--s4);
+    font-size: .85rem; color: var(--txt-secondary);
+    line-height: 1.7; white-space: pre-wrap;
+    max-height: 400px; overflow-y: auto;
+}
+.output-box--success { border-left: 3px solid var(--c-active); }
+.output-box--error   { border-left: 3px solid var(--c-error); color: var(--c-error); }
+
+/* ── Token Stats ─────────────────────────────────────────────────── */
+.token-stats {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: var(--s3); padding: var(--s3) var(--s4);
+    background: var(--bg-elevated); border-radius: var(--r2);
+    border: 1px solid var(--border-faint);
+}
+.token-stat { display: flex; flex-direction: column; gap: 3px; }
+
+/* ── Feedback Row ────────────────────────────────────────────────── */
+.feedback-row {
+    display: flex; align-items: center; gap: var(--s3);
+    padding: var(--s3) var(--s4); border-radius: var(--r2);
+    background: var(--bg-elevated); border: 1px solid var(--border-faint);
+}
+
+/* ── Approval Row ────────────────────────────────────────────────── */
+.approval-row {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: var(--s4); padding: var(--s3) 0;
+    border-bottom: 1px solid var(--border-faint);
+}
+.approval-row:last-child { border-bottom: none; }
+
+/* ── Running Task Card ───────────────────────────────────────────── */
+.running-task-card { border-color: var(--accent-border); background: var(--accent-glow); }
+
+/* ── Config Grid ─────────────────────────────────────────────────── */
+.config-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: var(--s3);
+}
+.config-item { display: flex; flex-direction: column; gap: 3px; }
+
+/* ── Prompt History ──────────────────────────────────────────────── */
+.prompt-history-list { display: flex; flex-direction: column; gap: var(--s2); }
+.prompt-history-item {
+    padding: var(--s3); border-radius: var(--r2);
+    border: 1px solid var(--border-faint); background: var(--bg-elevated);
+}
+.prompt-history-item--active { border-color: var(--accent-border); }
+
+/* ── Memory List ─────────────────────────────────────────────────── */
+.memory-list { display: flex; flex-direction: column; gap: var(--s3); }
+.memory-item {
+    padding: var(--s3); border-radius: var(--r2);
+    border: 1px solid var(--border-faint); background: var(--bg-elevated);
+}
+
+/* ── Badge Danger ────────────────────────────────────────────────── */
+.badge-danger { background: var(--c-error-bg); border: 1px solid var(--c-error-border); color: var(--c-error); }
+
 /* ── mt helpers ──────────────────────────────────────────────────── */
 .mt-2 { margin-top: var(--s2); }
 .mt-4 { margin-top: var(--s4); }
