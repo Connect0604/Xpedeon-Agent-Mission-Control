@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @implements IDisposable
 @inject MockDataService DataService
+@inject NavigationManager NavManager
 
 <PageTitle>Agents — Xpedeon AMC</PageTitle>
 
@@ -9,6 +10,14 @@
     <div>
         <h1 class="page-title">Agents</h1>
         <p class="page-subtitle">@filtered.Count of @allAgents.Count agents shown</p>
+    </div>
+    <div style="display:flex;gap:var(--s2);">
+        <button class="btn btn-ghost" @onclick='() => NavManager.NavigateTo("/templates")'>
+            <i class="bi bi-layout-text-window"></i> Templates
+        </button>
+        <button class="btn btn-primary" @onclick='() => NavManager.NavigateTo("/agents/create")'>
+            <i class="bi bi-plus-lg"></i> Create Agent
+        </button>
     </div>
 </div>
 

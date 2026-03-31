@@ -11,7 +11,7 @@
         </div>
         <div class="brand-text">
             <span class="brand-name">Xpedeon</span>
-            <span class="brand-sub">Mission Control</span>
+            <span class="brand-sub">Agent Platform</span>
         </div>
     </div>
 
@@ -24,16 +24,33 @@
             Dashboard
         </NavLink>
 
-        <div class="nav-section">Operations</div>
+        <div class="nav-section">Agents</div>
 
-        <NavLink class="nav-item" href="/agents">
+        <NavLink class="nav-item" href="/agents" Match="NavLinkMatch.All">
             <i class="bi bi-robot" aria-hidden="true"></i>
-            Agents
+            All Agents
             @if (errorCount > 0)
             {
                 <span class="nav-badge error" aria-label="@errorCount errors">@errorCount</span>
             }
         </NavLink>
+
+        <NavLink class="nav-item" href="/agents/create">
+            <i class="bi bi-plus-circle" aria-hidden="true"></i>
+            Create Agent
+        </NavLink>
+
+        <NavLink class="nav-item" href="/templates">
+            <i class="bi bi-layout-text-window" aria-hidden="true"></i>
+            Templates
+        </NavLink>
+
+        <NavLink class="nav-item" href="/swarms">
+            <i class="bi bi-diagram-3" aria-hidden="true"></i>
+            Swarms
+        </NavLink>
+
+        <div class="nav-section">Operations</div>
 
         <NavLink class="nav-item" href="/tasks">
             <i class="bi bi-list-task" aria-hidden="true"></i>
@@ -47,6 +64,18 @@
         <NavLink class="nav-item" href="/logs">
             <i class="bi bi-terminal" aria-hidden="true"></i>
             Logs
+        </NavLink>
+
+        <div class="nav-section">Configuration</div>
+
+        <NavLink class="nav-item" href="/providers">
+            <i class="bi bi-cpu" aria-hidden="true"></i>
+            LLM Providers
+        </NavLink>
+
+        <NavLink class="nav-item" href="/mcp">
+            <i class="bi bi-plug" aria-hidden="true"></i>
+            MCP Servers
         </NavLink>
     </div>
 

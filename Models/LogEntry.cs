@@ -11,5 +11,9 @@ public class LogEntry
     public string Message { get; set; } = string.Empty;
     public string? Details { get; set; }
     public string? CorrelationId { get; set; }
+    public string? TaskId { get; set; }
     public DateTime Timestamp { get; set; }
+
+    // Navigation
+    public Agent? Agent { get; set; }
 }

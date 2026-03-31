@@ -30,10 +30,15 @@
 
     private string PageTitle => Nav.Uri.TrimEnd('/') switch
     {
-        var u when u.Contains("/agents/") => "Agent Detail",
-        var u when u.EndsWith("/agents")  => "Agents",
-        var u when u.EndsWith("/tasks")   => "Tasks",
-        var u when u.EndsWith("/logs")    => "Logs",
+        var u when u.Contains("/agents/create")  => "Create Agent",
+        var u when u.Contains("/agents/")        => "Agent Detail",
+        var u when u.EndsWith("/agents")         => "Agents",
+        var u when u.EndsWith("/tasks")          => "Tasks",
+        var u when u.EndsWith("/logs")           => "Logs",
+        var u when u.EndsWith("/providers")      => "LLM Providers",
+        var u when u.EndsWith("/templates")      => "Agent Templates",
+        var u when u.EndsWith("/swarms")         => "Swarms",
+        var u when u.EndsWith("/mcp")            => "MCP Servers",
         _ => "Dashboard"
     };
 

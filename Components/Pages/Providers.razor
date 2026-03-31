@@ -1,0 +1,325 @@
+@page "/providers"
+@rendermode InteractiveServer
+@inject LLMProviderService ProviderService
+@inject NavigationManager Nav
+
+<PageTitle>LLM Providers — Xpedeon AMC</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">LLM Providers</h1>
+        <p class="page-subtitle">Configure AI model providers for your agents</p>
+    </div>
+    <button class="btn btn-primary" @onclick="OpenCreateModal">
+        <i class="bi bi-plus-lg"></i> Add Provider
+    </button>
+</div>
+
+@if (!providers.Any())
+{
+    <div class="card card-pad empty-state">
+        <div class="empty-icon"><i class="bi bi-cpu"></i></div>
+        <div class="empty-title">No providers configured</div>
+        <div class="empty-desc">Add a provider to start creating agents.</div>
+        <button class="btn btn-primary mt-4" @onclick="OpenCreateModal">
+            <i class="bi bi-plus-lg"></i> Add your first provider
+        </button>
+    </div>
+}
+else
+{
+    <div class="provider-grid">
+        @foreach (var p in providers)
+        {
+            <div class="card provider-card @(p.IsDefault ? "provider-card--default" : "")">
+                <div class="provider-card__header">
+                    <div class="provider-icon provider-icon--@p.Type.ToString().ToLower()">
+                        <i class="bi @ProviderIcon(p.Type)"></i>
+                    </div>
+                    <div class="provider-card__meta">
+                        <div class="provider-card__name">@p.Name</div>
+                        <div class="provider-card__model font-mono text-xs text-muted">@p.ModelName</div>
+                    </div>
+                    @if (p.IsDefault)
+                    {
+                        <span class="badge badge-accent ml-auto">Default</span>
+                    }
+                </div>
+
+                <div class="provider-card__body">
+                    <div class="provider-stat">
+                        <span class="text-muted text-xs">Type</span>
+                        <span class="text-sm">@p.Type</span>
+                    </div>
+                    <div class="provider-stat">
+                        <span class="text-muted text-xs">Max Tokens</span>
+                        <span class="text-sm font-mono">@p.MaxTokens.ToString("N0")</span>
+                    </div>
+                    <div class="provider-stat">
+                        <span class="text-muted text-xs">Temperature</span>
+                        <span class="text-sm font-mono">@p.Temperature</span>
+                    </div>
+                    <div class="provider-stat">
+                        <span class="text-muted text-xs">Endpoint</span>
+                        <span class="text-sm text-muted truncate">@(string.IsNullOrWhiteSpace(p.Endpoint) ? "Default" : p.Endpoint)</span>
+                    </div>
+                </div>
+
+                <div class="provider-card__footer">
+                    <span class="dot @(p.IsEnabled ? "active" : "offline") sm"></span>
+                    <span class="text-xs text-muted">@(p.IsEnabled ? "Enabled" : "Disabled")</span>
+                    <div class="ml-auto" style="display:flex;gap:var(--s2);">
+                        <button class="btn btn-ghost btn-sm" @onclick="() => OpenEditModal(p)" title="Edit">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <button class="btn btn-ghost btn-sm text-error" @onclick="() => ConfirmDelete(p)" title="Delete">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+<!-- Create / Edit Modal -->
+@if (showModal)
+{
+    <div class="modal-backdrop" @onclick="CloseModal">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2 class="modal-title">@(editingId == null ? "Add LLM Provider" : "Edit Provider")</h2>
+                <button class="modal-close" @onclick="CloseModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Display Name <span class="text-error">*</span></label>
+                    <input class="form-input" @bind="form.Name" placeholder="e.g. Claude Sonnet" />
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Provider Type <span class="text-error">*</span></label>
+                    <select class="form-input" @bind="form.Type">
+                        @foreach (var t in Enum.GetValues<LLMProviderType>())
+                        {
+                            <option value="@t">@t</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Model Name <span class="text-error">*</span></label>
+                    <input class="form-input font-mono" @bind="form.ModelName"
+                           placeholder="@ModelPlaceholder(form.Type)" />
+                    <span class="form-hint">@ModelHint(form.Type)</span>
+                </div>
+
+                @if (form.Type != LLMProviderType.Ollama)
+                {
+                    <div class="form-group">
+                        <label class="form-label">
+                            @(form.Type == LLMProviderType.Custom ? "Auth Token" : "API Key")
+                            <span class="text-error">*</span>
+                        </label>
+                        <input class="form-input font-mono" type="password"
+                               @bind="form.ApiKey" placeholder="sk-..." />
+                    </div>
+                }
+
+                <div class="form-group">
+                    <label class="form-label">
+                        Endpoint URL
+                        @if (form.Type == LLMProviderType.Ollama) { <span class="text-error">*</span> }
+                        else { <span class="text-muted text-xs">(optional — overrides default)</span> }
+                    </label>
+                    <input class="form-input font-mono" @bind="form.Endpoint"
+                           placeholder="@EndpointPlaceholder(form.Type)" />
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Max Tokens</label>
+                        <input class="form-input" type="number" @bind="form.MaxTokens" min="256" max="128000" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Temperature</label>
+                        <input class="form-input" type="number" @bind="form.Temperature" min="0" max="2" step="0.1" />
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <label class="form-check">
+                        <input type="checkbox" @bind="form.IsDefault" />
+                        <span>Set as default provider</span>
+                    </label>
+                    <label class="form-check">
+                        <input type="checkbox" @bind="form.IsEnabled" />
+                        <span>Enabled</span>
+                    </label>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(errorMsg))
+                {
+                    <div class="alert alert-error">@errorMsg</div>
+                }
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-ghost" @onclick="CloseModal">Cancel</button>
+                @if (form.Type == LLMProviderType.Ollama)
+                {
+                    <button class="btn btn-ghost" @onclick="TestConnection" disabled="@isTesting">
+                        @(isTesting ? "Testing..." : "Test Connection")
+                    </button>
+                }
+                <button class="btn btn-primary" @onclick="SaveProvider" disabled="@isSaving">
+                    @(isSaving ? "Saving..." : (editingId == null ? "Add Provider" : "Save Changes"))
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Delete Confirm Modal -->
+@if (deletingProvider != null)
+{
+    <div class="modal-backdrop" @onclick="() => deletingProvider = null">
+        <div class="modal modal--sm" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2 class="modal-title text-error">Delete Provider</h2>
+                <button class="modal-close" @onclick="() => deletingProvider = null"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-secondary">Are you sure you want to delete <strong class="text-primary">@deletingProvider.Name</strong>?</p>
+                <p class="text-muted text-sm mt-2">Agents using this provider will lose their LLM configuration.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" @onclick="() => deletingProvider = null">Cancel</button>
+                <button class="btn btn-danger" @onclick="DeleteProvider">Delete</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<LLMProvider> providers = new();
+    private bool showModal;
+    private bool isSaving;
+    private bool isTesting;
+    private string? editingId;
+    private string errorMsg = "";
+    private LLMProvider? deletingProvider;
+
+    private LLMProvider form = new() { IsEnabled = true, MaxTokens = 4096, Temperature = 0.7 };
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        providers = await ProviderService.GetAllAsync();
+        StateHasChanged();
+    }
+
+    private void OpenCreateModal()
+    {
+        editingId = null;
+        form = new LLMProvider { IsEnabled = true, MaxTokens = 4096, Temperature = 0.7 };
+        errorMsg = "";
+        showModal = true;
+    }
+
+    private void OpenEditModal(LLMProvider p)
+    {
+        editingId = p.Id;
+        form = new LLMProvider
+        {
+            Id = p.Id, Name = p.Name, Type = p.Type, ModelName = p.ModelName,
+            Endpoint = p.Endpoint, ApiKey = p.ApiKey, AuthToken = p.AuthToken,
+            MaxTokens = p.MaxTokens, Temperature = p.Temperature,
+            IsDefault = p.IsDefault, IsEnabled = p.IsEnabled
+        };
+        errorMsg = "";
+        showModal = true;
+    }
+
+    private void CloseModal() { showModal = false; errorMsg = ""; }
+
+    private async Task SaveProvider()
+    {
+        errorMsg = "";
+        if (string.IsNullOrWhiteSpace(form.Name)) { errorMsg = "Name is required."; return; }
+        if (string.IsNullOrWhiteSpace(form.ModelName)) { errorMsg = "Model name is required."; return; }
+        if (form.Type != LLMProviderType.Ollama && string.IsNullOrWhiteSpace(form.ApiKey) && editingId == null)
+        { errorMsg = "API key is required."; return; }
+
+        isSaving = true;
+        try
+        {
+            if (editingId == null) await ProviderService.CreateAsync(form);
+            else await ProviderService.UpdateAsync(form);
+            await LoadAsync();
+            CloseModal();
+        }
+        catch (Exception ex) { errorMsg = ex.Message; }
+        finally { isSaving = false; }
+    }
+
+    private async Task TestConnection()
+    {
+        isTesting = true;
+        errorMsg = "";
+        try
+        {
+            var ok = await ProviderService.TestConnectionAsync(form);
+            errorMsg = ok ? "" : "Connection failed — check endpoint and ensure Ollama is running.";
+            if (ok) errorMsg = "Connection successful!";
+        }
+        catch { errorMsg = "Connection failed."; }
+        finally { isTesting = false; }
+    }
+
+    private void ConfirmDelete(LLMProvider p) => deletingProvider = p;
+
+    private async Task DeleteProvider()
+    {
+        if (deletingProvider == null) return;
+        await ProviderService.DeleteAsync(deletingProvider.Id);
+        deletingProvider = null;
+        await LoadAsync();
+    }
+
+    private static string ProviderIcon(LLMProviderType t) => t switch
+    {
+        LLMProviderType.Claude => "bi-stars",
+        LLMProviderType.OpenAI => "bi-lightning-charge",
+        LLMProviderType.Ollama => "bi-house-gear",
+        LLMProviderType.Custom => "bi-braces",
+        _ => "bi-cpu"
+    };
+
+    private static string ModelPlaceholder(LLMProviderType t) => t switch
+    {
+        LLMProviderType.Claude => "claude-sonnet-4-6",
+        LLMProviderType.OpenAI => "gpt-4o",
+        LLMProviderType.Ollama => "llama3",
+        LLMProviderType.Custom => "my-model",
+        _ => "model-name"
+    };
+
+    private static string ModelHint(LLMProviderType t) => t switch
+    {
+        LLMProviderType.Claude => "claude-opus-4-6 · claude-sonnet-4-6 · claude-haiku-4-5-20251001",
+        LLMProviderType.OpenAI => "gpt-4o · gpt-4o-mini · gpt-4-turbo",
+        LLMProviderType.Ollama => "llama3 · mistral · phi3 · gemma2",
+        LLMProviderType.Custom => "Model name as expected by your API endpoint",
+        _ => ""
+    };
+
+    private static string EndpointPlaceholder(LLMProviderType t) => t switch
+    {
+        LLMProviderType.Ollama => "http://localhost:11434",
+        LLMProviderType.Custom => "https://your-api.com/v1/chat/completions",
+        _ => "https://api.anthropic.com/v1/messages (leave blank for default)"
+    };
+}

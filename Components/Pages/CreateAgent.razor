@@ -1,0 +1,521 @@
+@page "/agents/create"
+@rendermode InteractiveServer
+@inject AgentService AgentService
+@inject LLMProviderService ProviderService
+@inject TemplateService TemplateService
+@inject NavigationManager Nav
+
+<PageTitle>Create Agent — Xpedeon AMC</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Create Agent</h1>
+        <p class="page-subtitle">Configure a new AI agent for your workflow</p>
+    </div>
+    <button class="btn btn-ghost" @onclick='() => Nav.NavigateTo("/agents")'>
+        <i class="bi bi-arrow-left"></i> Back
+    </button>
+</div>
+
+<div class="create-agent-layout">
+
+    <!-- Left: Steps / Progress -->
+    <div class="create-agent-steps">
+        <div class="step-item @(currentStep >= 1 ? "step-item--done" : "") @(currentStep == 1 ? "step-item--active" : "")">
+            <div class="step-num">@(currentStep > 1 ? "✓" : "1")</div>
+            <div class="step-label">Basics</div>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step-item @(currentStep >= 2 ? "step-item--done" : "") @(currentStep == 2 ? "step-item--active" : "")">
+            <div class="step-num">@(currentStep > 2 ? "✓" : "2")</div>
+            <div class="step-label">LLM & Prompt</div>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step-item @(currentStep >= 3 ? "step-item--done" : "") @(currentStep == 3 ? "step-item--active" : "")">
+            <div class="step-num">@(currentStep > 3 ? "✓" : "3")</div>
+            <div class="step-label">Memory & Tools</div>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step-item @(currentStep >= 4 ? "step-item--active" : "")">
+            <div class="step-num">4</div>
+            <div class="step-label">Advanced</div>
+        </div>
+    </div>
+
+    <!-- Right: Form -->
+    <div class="create-agent-form">
+
+        <!-- Step 1: Basics -->
+        @if (currentStep == 1)
+        {
+            <div class="card card-pad">
+                <h3 class="section-title mb-4">Agent Basics</h3>
+
+                <!-- Template picker -->
+                @if (templates.Any())
+                {
+                    <div class="form-group">
+                        <label class="form-label">Start from a template <span class="text-muted text-xs">(optional)</span></label>
+                        <div class="template-picker">
+                            <div class="template-picker-item @(selectedTemplateId == null ? "selected" : "")"
+                                 @onclick='() => ApplyTemplate(null)'>
+                                <i class="bi bi-braces"></i>
+                                <span>Blank</span>
+                            </div>
+                            @foreach (var t in templates)
+                            {
+                                <div class="template-picker-item @(selectedTemplateId == t.Id ? "selected" : "")"
+                                     @onclick="() => ApplyTemplate(t)">
+                                    <i class="bi @(t.IconClass ?? "bi-robot")"></i>
+                                    <span>@t.Name</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+
+                <div class="form-group">
+                    <label class="form-label">Agent Name <span class="text-error">*</span></label>
+                    <input class="form-input" @bind="agent.Name" placeholder="e.g. Invoice Validator #1" />
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Agent Type <span class="text-error">*</span></label>
+                    <div class="type-picker">
+                        @foreach (var t in Enum.GetValues<AgentType>())
+                        {
+                            <button class="type-btn @(agent.Type == t ? "type-btn--active" : "")"
+                                    @onclick="() => agent.Type = t">
+                                <i class="bi @TypeIcon(t)"></i>
+                                <span>@t</span>
+                            </button>
+                        }
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <textarea class="form-input" rows="2" @bind="agent.Description"
+                              placeholder="What does this agent do?"></textarea>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Host Machine</label>
+                        <input class="form-input font-mono" @bind="agent.HostMachine"
+                               placeholder="worker-01.xpedeon.local" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Version</label>
+                        <input class="form-input font-mono" @bind="agent.Version" placeholder="1.0.0" />
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Step 2: LLM & System Prompt -->
+        @if (currentStep == 2)
+        {
+            <div class="card card-pad">
+                <h3 class="section-title mb-4">LLM Provider & System Prompt</h3>
+
+                <div class="form-group">
+                    <label class="form-label">LLM Provider <span class="text-error">*</span></label>
+                    @if (!providers.Any())
+                    {
+                        <div class="alert alert-warning">
+                            <i class="bi bi-exclamation-triangle"></i>
+                            No providers configured.
+                            <a href="/providers" class="text-accent">Add a provider first</a>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="provider-picker">
+                            @foreach (var p in providers)
+                            {
+                                <div class="provider-picker-item @(agent.LLMProviderId == p.Id ? "selected" : "")"
+                                     @onclick="() => agent.LLMProviderId = p.Id">
+                                    <i class="bi @ProviderIcon(p.Type)"></i>
+                                    <div>
+                                        <div class="text-sm font-medium">@p.Name</div>
+                                        <div class="text-xs font-mono text-muted">@p.ModelName</div>
+                                    </div>
+                                    @if (p.IsDefault)
+                                    {
+                                        <span class="badge badge-accent ml-auto text-xs">Default</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">
+                        System Prompt <span class="text-error">*</span>
+                        <span class="text-muted text-xs ml-2">— defines what this agent does and how it behaves</span>
+                    </label>
+                    <textarea class="form-input font-mono prompt-editor" rows="12"
+                              @bind="agent.SystemPrompt"
+                              placeholder="You are an AI agent that...&#10;&#10;Your responsibilities:&#10;1. ...&#10;2. ...&#10;&#10;Always:&#10;- ...&#10;&#10;Never:&#10;- ..."></textarea>
+                    <div class="form-hint">
+                        <i class="bi bi-info-circle"></i>
+                        Be specific. Describe the role, responsibilities, output format, and constraints.
+                        @if (!string.IsNullOrWhiteSpace(agent.SystemPrompt))
+                        {
+                            <span class="ml-auto text-muted">~@EstimateTokens(agent.SystemPrompt) tokens</span>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Step 3: Memory & Tools -->
+        @if (currentStep == 3)
+        {
+            <div class="card card-pad">
+                <h3 class="section-title mb-4">Memory Configuration</h3>
+
+                <div class="toggle-group">
+                    <div class="toggle-item">
+                        <div>
+                            <div class="toggle-label">Short-term Memory</div>
+                            <div class="toggle-desc text-muted text-sm">Maintains context within a single task run</div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" @bind="agent.ShortTermMemoryEnabled" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="toggle-item">
+                        <div>
+                            <div class="toggle-label">Long-term Memory</div>
+                            <div class="toggle-desc text-muted text-sm">Persists learnings across task runs</div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" @bind="agent.LongTermMemoryEnabled" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="toggle-item">
+                        <div>
+                            <div class="toggle-label">Share Memory with Swarm</div>
+                            <div class="toggle-desc text-muted text-sm">Pool memory with other agents in the same swarm</div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" @bind="agent.ShareMemoryWithSwarm" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card card-pad mt-4">
+                <h3 class="section-title mb-4">Tools</h3>
+                <div class="tools-grid">
+                    @foreach (var tool in availableTools)
+                    {
+                        <div class="tool-item @(selectedTools.Contains(tool.Key) ? "tool-item--active" : "")"
+                             @onclick="() => ToggleTool(tool.Key)">
+                            <i class="bi @tool.Value.icon"></i>
+                            <div>
+                                <div class="text-sm font-medium">@tool.Key</div>
+                                <div class="text-xs text-muted">@tool.Value.desc</div>
+                            </div>
+                            @if (selectedTools.Contains(tool.Key))
+                            {
+                                <i class="bi bi-check-circle-fill text-accent ml-auto"></i>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- Step 4: Advanced -->
+        @if (currentStep == 4)
+        {
+            <div class="card card-pad">
+                <h3 class="section-title mb-4">Resource Limits</h3>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Memory Limit (MB)</label>
+                        <input class="form-input" type="number" @bind="agent.MemoryLimitMB" min="64" max="8192" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Timeout (seconds)</label>
+                        <input class="form-input" type="number" @bind="agent.TimeoutSeconds" min="10" max="3600" />
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Max Retries</label>
+                        <input class="form-input" type="number" @bind="agent.MaxRetries" min="0" max="10" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Daily Token Budget</label>
+                        <input class="form-input" type="number" @bind="tokenBudget"
+                               placeholder="Leave blank for unlimited" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="card card-pad mt-4">
+                <h3 class="section-title mb-4">Reliability & Safety</h3>
+                <div class="toggle-group">
+                    <div class="toggle-item">
+                        <div>
+                            <div class="toggle-label">Circuit Breaker</div>
+                            <div class="toggle-desc text-muted text-sm">Auto-pause agent after @agent.CircuitBreakerFailureThreshold consecutive failures</div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" @bind="agent.CircuitBreakerEnabled" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="toggle-item">
+                        <div>
+                            <div class="toggle-label">Require Human Approval</div>
+                            <div class="toggle-desc text-muted text-sm">Tasks wait for manual approval before executing</div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" @bind="agent.RequiresApproval" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                @if (agent.CircuitBreakerEnabled)
+                {
+                    <div class="form-group mt-4">
+                        <label class="form-label">Failure Threshold</label>
+                        <input class="form-input" type="number" @bind="agent.CircuitBreakerFailureThreshold" min="2" max="20" />
+                    </div>
+                }
+
+                @if (agent.RequiresApproval)
+                {
+                    <div class="form-group mt-4">
+                        <label class="form-label">Confidence Threshold <span class="text-muted text-xs">(auto-approve above this)</span></label>
+                        <input class="form-input" type="number" @bind="agent.ConfidenceThreshold" min="0" max="1" step="0.05" />
+                    </div>
+                }
+            </div>
+
+            <!-- Summary -->
+            <div class="card card-pad mt-4 agent-summary">
+                <h3 class="section-title mb-3">Summary</h3>
+                <div class="summary-grid">
+                    <div class="summary-item">
+                        <span class="text-muted text-xs">Name</span>
+                        <span class="text-sm font-medium">@(string.IsNullOrEmpty(agent.Name) ? "—" : agent.Name)</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="text-muted text-xs">Type</span>
+                        <span class="text-sm">@agent.Type</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="text-muted text-xs">LLM Provider</span>
+                        <span class="text-sm">@(providers.FirstOrDefault(p => p.Id == agent.LLMProviderId)?.DisplayName ?? "Not set")</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="text-muted text-xs">System Prompt</span>
+                        <span class="text-sm">@(string.IsNullOrWhiteSpace(agent.SystemPrompt) ? "Not set" : $"~{EstimateTokens(agent.SystemPrompt)} tokens")</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="text-muted text-xs">Memory</span>
+                        <span class="text-sm">@MemorySummary()</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="text-muted text-xs">Tools</span>
+                        <span class="text-sm">@(selectedTools.Any() ? string.Join(", ", selectedTools) : "None")</span>
+                    </div>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(errorMsg))
+            {
+                <div class="alert alert-error mt-4">@errorMsg</div>
+            }
+        }
+
+        <!-- Navigation buttons -->
+        <div class="form-actions mt-4">
+            @if (currentStep > 1)
+            {
+                <button class="btn btn-ghost" @onclick="PrevStep">
+                    <i class="bi bi-arrow-left"></i> Back
+                </button>
+            }
+            else
+            {
+                <button class="btn btn-ghost" @onclick='() => Nav.NavigateTo("/agents")'>Cancel</button>
+            }
+
+            @if (currentStep < 4)
+            {
+                <button class="btn btn-primary ml-auto" @onclick="NextStep">
+                    Next <i class="bi bi-arrow-right"></i>
+                </button>
+            }
+            else
+            {
+                <button class="btn btn-primary ml-auto" @onclick="CreateAgent" disabled="@isSaving">
+                    @if (isSaving) { <span class="spinner"></span> }
+                    <i class="bi bi-check-lg"></i> @(isSaving ? "Creating..." : "Create Agent")
+                </button>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery] private string? templateId { get; set; }
+
+    private Agent agent = new()
+    {
+        Type = AgentType.Custom,
+        Version = "1.0.0",
+        MemoryLimitMB = 512,
+        TimeoutSeconds = 120,
+        MaxRetries = 3,
+        CircuitBreakerEnabled = true,
+        CircuitBreakerFailureThreshold = 5,
+        ShortTermMemoryEnabled = true,
+        ConfidenceThreshold = 0.8
+    };
+
+    private List<LLMProvider> providers = new();
+    private List<AgentTemplate> templates = new();
+    private string? selectedTemplateId;
+    private HashSet<string> selectedTools = new();
+    private int currentStep = 1;
+    private bool isSaving;
+    private string errorMsg = "";
+    private long? tokenBudget;
+
+    private static readonly Dictionary<string, (string icon, string desc)> availableTools = new()
+    {
+        ["HTTP Request"]    = ("bi-cloud-arrow-up",     "Call external REST APIs"),
+        ["Database Query"]  = ("bi-database",            "Read/write database records"),
+        ["File I/O"]        = ("bi-file-earmark-text",  "Read and write files"),
+        ["Email"]           = ("bi-envelope",            "Send email notifications"),
+        ["Web Search"]      = ("bi-search",              "Search the web for information"),
+        ["Calculator"]      = ("bi-calculator",          "Precise numeric computation"),
+        ["Script Runner"]   = ("bi-terminal",            "Execute scripts"),
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        providers = await ProviderService.GetAllAsync();
+        templates = await TemplateService.GetAllAsync();
+
+        // Set default provider
+        var def = providers.FirstOrDefault(p => p.IsDefault) ?? providers.FirstOrDefault();
+        if (def != null) agent.LLMProviderId = def.Id;
+
+        // Pre-select template from query string
+        if (!string.IsNullOrWhiteSpace(templateId))
+        {
+            var t = templates.FirstOrDefault(x => x.Id == templateId);
+            if (t != null) ApplyTemplate(t);
+        }
+    }
+
+    private void ApplyTemplate(AgentTemplate? t)
+    {
+        selectedTemplateId = t?.Id;
+        if (t == null) return;
+        agent.Type = t.DefaultType;
+        agent.Description = t.Description;
+        agent.SystemPrompt = t.SystemPrompt;
+        if (string.IsNullOrWhiteSpace(agent.Name)) agent.Name = t.Name;
+    }
+
+    private void ToggleTool(string tool)
+    {
+        if (!selectedTools.Remove(tool)) selectedTools.Add(tool);
+    }
+
+    private void NextStep()
+    {
+        errorMsg = "";
+        if (currentStep == 1)
+        {
+            if (string.IsNullOrWhiteSpace(agent.Name)) { errorMsg = "Agent name is required."; return; }
+        }
+        else if (currentStep == 2)
+        {
+            if (string.IsNullOrWhiteSpace(agent.SystemPrompt)) { errorMsg = "System prompt is required."; return; }
+            if (string.IsNullOrWhiteSpace(agent.LLMProviderId)) { errorMsg = "Please select an LLM provider."; return; }
+        }
+        currentStep++;
+    }
+
+    private void PrevStep() => currentStep--;
+
+    private async Task CreateAgent()
+    {
+        errorMsg = "";
+        if (string.IsNullOrWhiteSpace(agent.Name)) { errorMsg = "Agent name is required."; currentStep = 1; return; }
+        if (string.IsNullOrWhiteSpace(agent.SystemPrompt)) { errorMsg = "System prompt is required."; currentStep = 2; return; }
+        if (string.IsNullOrWhiteSpace(agent.LLMProviderId)) { errorMsg = "Please select an LLM provider."; currentStep = 2; return; }
+
+        agent.TokenBudgetPerDay = tokenBudget > 0 ? tokenBudget : null;
+        if (string.IsNullOrWhiteSpace(agent.HostMachine))
+            agent.HostMachine = $"worker-{DateTime.UtcNow.Ticks % 99:D2}.xpedeon.local";
+
+        // Add selected tools
+        agent.Tools = selectedTools.Select(name => new AgentTool
+        {
+            Name = name,
+            Type = ToolType.Custom,
+            Description = availableTools.GetValueOrDefault(name).desc ?? name,
+            IsEnabled = true
+        }).ToList();
+
+        isSaving = true;
+        try
+        {
+            var created = await AgentService.CreateAsync(agent);
+            Nav.NavigateTo($"/agents/{created.Id}");
+        }
+        catch (Exception ex)
+        {
+            errorMsg = ex.Message;
+            isSaving = false;
+        }
+    }
+
+    private string MemorySummary()
+    {
+        var parts = new List<string>();
+        if (agent.ShortTermMemoryEnabled) parts.Add("Short-term");
+        if (agent.LongTermMemoryEnabled) parts.Add("Long-term");
+        if (agent.ShareMemoryWithSwarm) parts.Add("Swarm shared");
+        return parts.Any() ? string.Join(", ", parts) : "None";
+    }
+
+    private static int EstimateTokens(string text) => (int)(text.Length / 3.8);
+
+    private static string TypeIcon(AgentType t) => t switch
+    {
+        AgentType.DataSync     => "bi-arrow-left-right",
+        AgentType.Reporting    => "bi-file-earmark-bar-graph",
+        AgentType.Integration  => "bi-plug",
+        AgentType.Notification => "bi-bell",
+        AgentType.Processing   => "bi-cpu",
+        AgentType.Custom       => "bi-braces",
+        _ => "bi-robot"
+    };
+
+    private static string ProviderIcon(LLMProviderType t) => t switch
+    {
+        LLMProviderType.Claude => "bi-stars",
+        LLMProviderType.OpenAI => "bi-lightning-charge",
+        LLMProviderType.Ollama => "bi-house-gear",
+        LLMProviderType.Custom => "bi-braces",
+        _ => "bi-cpu"
+    };
+}
