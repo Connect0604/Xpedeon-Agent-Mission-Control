@@ -1,0 +1,177 @@
+@page "/templates"
+@rendermode InteractiveServer
+@inject TemplateService TemplateService
+@inject NavigationManager Nav
+
+<PageTitle>Agent Templates — Xpedeon AMC</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Agent Templates</h1>
+        <p class="page-subtitle">Pre-built agents for Xpedeon workflows — pick one to get started fast</p>
+    </div>
+    <button class="btn btn-primary" @onclick='() => Nav.NavigateTo("/agents/create")'>
+        <i class="bi bi-plus-lg"></i> Custom Agent
+    </button>
+</div>
+
+<!-- Category Filter -->
+<div class="filter-bar">
+    <button class="chip @(categoryFilter == null ? "on" : "")" @onclick='() => categoryFilter = null'>All</button>
+    <button class="chip @(categoryFilter == TemplateCategory.Xpedeon ? "on" : "")"
+            @onclick='() => categoryFilter = TemplateCategory.Xpedeon'>
+        <i class="bi bi-building"></i> Xpedeon
+    </button>
+    <button class="chip @(categoryFilter == TemplateCategory.General ? "on" : "")"
+            @onclick='() => categoryFilter = TemplateCategory.General'>
+        <i class="bi bi-grid"></i> General
+    </button>
+</div>
+
+@if (!Filtered.Any())
+{
+    <div class="card card-pad empty-state">
+        <div class="empty-icon"><i class="bi bi-layout-text-window"></i></div>
+        <div class="empty-title">No templates found</div>
+    </div>
+}
+else
+{
+    <!-- Xpedeon Built-in Section -->
+    @if (Filtered.Any(t => t.IsXpedeonBuiltIn))
+    {
+        <div class="section-header">
+            <i class="bi bi-building text-accent"></i>
+            <span>Xpedeon Built-in</span>
+            <span class="badge badge-accent ml-2">@Filtered.Count(t => t.IsXpedeonBuiltIn)</span>
+        </div>
+        <div class="template-grid">
+            @foreach (var t in Filtered.Where(t => t.IsXpedeonBuiltIn))
+            {
+                <div class="template-card" @onclick="() => SelectTemplate(t)">
+                    <div class="template-card__icon">
+                        <i class="bi @(t.IconClass ?? "bi-robot")"></i>
+                    </div>
+                    <div class="template-card__body">
+                        <div class="template-card__name">@t.Name</div>
+                        <div class="template-card__desc text-sm text-secondary">@t.Description</div>
+                        <div class="template-card__tags mt-2">
+                            @if (!string.IsNullOrWhiteSpace(t.Tags))
+                            {
+                                @foreach (var tag in t.Tags.Split(','))
+                                {
+                                    <span class="tag">@tag.Trim()</span>
+                                }
+                            }
+                        </div>
+                    </div>
+                    <div class="template-card__footer">
+                        <span class="text-xs text-muted">
+                            <i class="bi bi-robot"></i> @t.DefaultType
+                        </span>
+                        @if (!string.IsNullOrWhiteSpace(t.RecommendedModel))
+                        {
+                            <span class="text-xs font-mono text-muted">@t.RecommendedModel</span>
+                        }
+                        <span class="text-xs text-muted ml-auto">@t.UsageCount uses</span>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    <!-- Custom Templates Section -->
+    @if (Filtered.Any(t => !t.IsXpedeonBuiltIn))
+    {
+        <div class="section-header mt-6">
+            <i class="bi bi-person text-accent2"></i>
+            <span>Custom Templates</span>
+        </div>
+        <div class="template-grid">
+            @foreach (var t in Filtered.Where(t => !t.IsXpedeonBuiltIn))
+            {
+                <div class="template-card" @onclick="() => SelectTemplate(t)">
+                    <div class="template-card__icon template-card__icon--custom">
+                        <i class="bi @(t.IconClass ?? "bi-braces")"></i>
+                    </div>
+                    <div class="template-card__body">
+                        <div class="template-card__name">@t.Name</div>
+                        <div class="template-card__desc text-sm text-secondary">@t.Description</div>
+                    </div>
+                    <div class="template-card__footer">
+                        <span class="text-xs text-muted"><i class="bi bi-robot"></i> @t.DefaultType</span>
+                        <span class="text-xs text-muted ml-auto">@t.UsageCount uses</span>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+<!-- Template Preview Modal -->
+@if (selectedTemplate != null)
+{
+    <div class="modal-backdrop" @onclick="() => selectedTemplate = null">
+        <div class="modal modal--lg" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <div style="display:flex;align-items:center;gap:var(--s3);">
+                    <div class="template-card__icon" style="width:40px;height:40px;font-size:1.2rem;flex-shrink:0;">
+                        <i class="bi @(selectedTemplate.IconClass ?? "bi-robot")"></i>
+                    </div>
+                    <div>
+                        <h2 class="modal-title">@selectedTemplate.Name</h2>
+                        <p class="text-muted text-sm">@selectedTemplate.Description</p>
+                    </div>
+                </div>
+                <button class="modal-close" @onclick="() => selectedTemplate = null"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">System Prompt</label>
+                    <div class="prompt-preview">@selectedTemplate.SystemPrompt</div>
+                </div>
+                <div class="form-row mt-4">
+                    <div>
+                        <span class="text-muted text-xs">Agent Type</span>
+                        <div class="text-sm mt-1">@selectedTemplate.DefaultType</div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(selectedTemplate.RecommendedModel))
+                    {
+                        <div>
+                            <span class="text-muted text-xs">Recommended Model</span>
+                            <div class="text-sm font-mono mt-1">@selectedTemplate.RecommendedModel</div>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" @onclick="() => selectedTemplate = null">Cancel</button>
+                <button class="btn btn-primary" @onclick="UseTemplate">
+                    <i class="bi bi-plus-lg"></i> Use This Template
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<AgentTemplate> templates = new();
+    private TemplateCategory? categoryFilter;
+    private AgentTemplate? selectedTemplate;
+
+    private IEnumerable<AgentTemplate> Filtered => templates
+        .Where(t => categoryFilter == null || t.Category == categoryFilter);
+
+    protected override async Task OnInitializedAsync()
+    {
+        templates = await TemplateService.GetAllAsync();
+    }
+
+    private void SelectTemplate(AgentTemplate t) => selectedTemplate = t;
+
+    private void UseTemplate()
+    {
+        if (selectedTemplate == null) return;
+        Nav.NavigateTo($"/agents/create?templateId={selectedTemplate.Id}");
+    }
+}
