@@ -34,7 +34,7 @@ public class AppDbContext : DbContext
                 new ValueConverter<List<double>, string>(
                     v => string.Join(',', v),
                     v => v.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                          .Select(x => double.TryParse(x, out var d) ? d : 0.0)
+                          .Select(x => TryParseDouble(x))
                           .ToList()
                 )
             );
@@ -238,5 +238,11 @@ public class AppDbContext : DbContext
                 CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
             }
         );
+    }
+
+    private static double TryParseDouble(string x)
+    {
+        double.TryParse(x, out var d);
+        return d;
     }
 }
