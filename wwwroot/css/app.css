@@ -1959,6 +1959,32 @@ body::before {
     .mcp-grid   { grid-template-columns: 1fr; }
 }
 
+/* ── Dynamic Spawning UI ─────────────────────────────────────────── */
+.spawn-preview-box {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--s3);
+    padding: var(--s3) var(--s4);
+    background: var(--accent-glow);
+    border: 1px solid var(--accent-border);
+    border-radius: var(--r-md);
+    margin-top: var(--s4);
+    font-size: .85rem;
+    color: var(--txt-secondary);
+}
+.spawn-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s1);
+    padding: 2px 8px;
+    border-radius: var(--r-pill);
+    font-size: .72rem;
+    font-weight: 600;
+    background: var(--accent2-glow);
+    border: 1px solid rgba(124,58,237,.25);
+    color: var(--accent2);
+}
+
 /* ── Prefers Reduced Motion ─────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
     *,

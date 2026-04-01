@@ -8,11 +8,13 @@ public class TaskService
 {
     private readonly IDbContextFactory<AppDbContext> _factory;
     private readonly LLMExecutionService _llm;
+    private readonly DynamicSpawnService _spawn;
 
-    public TaskService(IDbContextFactory<AppDbContext> factory, LLMExecutionService llm)
+    public TaskService(IDbContextFactory<AppDbContext> factory, LLMExecutionService llm, DynamicSpawnService spawn)
     {
         _factory = factory;
         _llm = llm;
+        _spawn = spawn;
     }
 
     public async Task<List<AgentTask>> GetAllAsync(int count = 100)
@@ -81,7 +83,13 @@ public class TaskService
         await db.SaveChangesAsync();
 
         // Execute async (fire and update)
-        _ = Task.Run(async () => await ExecuteTaskAsync(task.Id, agent));
+        _ = Task.Run(async () =>
+        {
+            if (agent.SpawnEnabled)
+                await _spawn.ExecuteWithSpawningAsync(task.Id, agent);
+            else
+                await ExecuteTaskAsync(task.Id, agent);
+        });
 
         return task;
     }
@@ -101,7 +109,13 @@ public class TaskService
         agent.CurrentTask = task.Name;
         await db.SaveChangesAsync();
 
-        _ = Task.Run(async () => await ExecuteTaskAsync(task.Id, agent));
+        _ = Task.Run(async () =>
+        {
+            if (agent.SpawnEnabled)
+                await _spawn.ExecuteWithSpawningAsync(task.Id, agent);
+            else
+                await ExecuteTaskAsync(task.Id, agent);
+        });
     }
 
     public async Task CancelTaskAsync(string taskId)

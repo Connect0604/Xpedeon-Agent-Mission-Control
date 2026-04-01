@@ -52,6 +52,11 @@ public class AgentTask
     public string? ParentTaskId { get; set; }
     public string? NextAgentId { get; set; }
 
+    // Dynamic Spawning
+    public int SpawnDepth { get; set; } = 0;
+    public string? SpawnParentTaskId { get; set; }
+    public int SpawnChildCount { get; set; } = 0;
+
     // Navigation
     public Agent? Agent { get; set; }
 

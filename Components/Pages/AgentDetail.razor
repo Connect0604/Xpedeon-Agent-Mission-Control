@@ -312,6 +312,20 @@ else
                             {
                                 <div class="text-xs text-error mt-1"><i class="bi bi-exclamation-circle"></i> @task.ErrorMessage</div>
                             }
+                            @if (task.SpawnChildCount > 0)
+                            {
+                                <div class="spawn-badge mt-1">
+                                    <i class="bi bi-diagram-3"></i>
+                                    Spawned @task.SpawnChildCount child agents
+                                </div>
+                            }
+                            @if (task.SpawnDepth > 0)
+                            {
+                                <div class="text-xs text-muted mt-1">
+                                    <i class="bi bi-arrow-return-right"></i>
+                                    Child agent · depth @task.SpawnDepth
+                                </div>
+                            }
                             @if (task.TotalTokens > 0)
                             {
                                 <div class="task-meta mt-2">

@@ -36,9 +36,14 @@
             <div class="step-label">Memory & Tools</div>
         </div>
         <div class="step-connector"></div>
-        <div class="step-item @(currentStep >= 4 ? "step-item--active" : "")">
-            <div class="step-num">4</div>
+        <div class="step-item @(currentStep >= 4 ? "step-item--done" : "") @(currentStep == 4 ? "step-item--active" : "")">
+            <div class="step-num">@(currentStep > 4 ? "✓" : "4")</div>
             <div class="step-label">Advanced</div>
+        </div>
+        <div class="step-connector"></div>
+        <div class="step-item @(currentStep >= 5 ? "step-item--active" : "")">
+            <div class="step-num">5</div>
+            <div class="step-label">Spawning</div>
         </div>
     </div>
 
@@ -340,6 +345,96 @@
             }
         }
 
+        <!-- Step 5: Spawning -->
+        @if (currentStep == 5)
+        {
+            <div class="card card-pad">
+                <h3 class="section-title mb-4">Dynamic Agent Spawning</h3>
+                <div class="toggle-item mb-4">
+                    <div>
+                        <div class="toggle-label">Enable Dynamic Spawning</div>
+                        <div class="toggle-desc text-muted text-sm">Agent spawns child agents at runtime based on task input</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" @bind="agent.SpawnEnabled" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                @if (agent.SpawnEnabled)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Spawn Mode</label>
+                        <div class="strategy-picker">
+                            <button class="strategy-btn @(agent.SpawnMode == AgentSpawnMode.RuleBased ? "strategy-btn--active" : "")"
+                                    @onclick='() => agent.SpawnMode = AgentSpawnMode.RuleBased'>
+                                <i class="bi bi-scissors"></i>
+                                <div class="strategy-btn__name">Rule-Based</div>
+                                <div class="strategy-btn__desc">Split input by pattern</div>
+                            </button>
+                            <button class="strategy-btn @(agent.SpawnMode == AgentSpawnMode.LLMDecided ? "strategy-btn--active" : "")"
+                                    @onclick='() => agent.SpawnMode = AgentSpawnMode.LLMDecided'>
+                                <i class="bi bi-stars"></i>
+                                <div class="strategy-btn__name">LLM-Decided</div>
+                                <div class="strategy-btn__desc">LLM decides decomposition</div>
+                            </button>
+                        </div>
+                    </div>
+                    @if (agent.SpawnMode == AgentSpawnMode.RuleBased)
+                    {
+                        <div class="form-group">
+                            <label class="form-label">Split Input By</label>
+                            <select class="form-input" @bind="agent.SpawnTriggerType">
+                                <option value="@AgentSpawnTriggerType.SplitByNewline">New line</option>
+                                <option value="@AgentSpawnTriggerType.SplitByComma">Comma-separated</option>
+                                <option value="@AgentSpawnTriggerType.JsonArray">JSON array</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Child Prompt Template <span class="text-muted text-xs">optional</span></label>
+                            <textarea class="form-input" rows="3" @bind="agent.ChildPromptTemplate"
+                                      placeholder="Use {item} and {n}. Leave blank to inherit parent prompt."></textarea>
+                        </div>
+                    }
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Max Spawns</label>
+                            <input class="form-input" type="number" @bind="agent.MaxSpawns" min="1" max="100" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Max Depth</label>
+                            <input class="form-input" type="number" @bind="agent.MaxDepth" min="1" max="5" />
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Child Lifecycle</label>
+                        <select class="form-input" @bind="agent.SpawnLifecycle">
+                            <option value="@AgentSpawnLifecycle.Ephemeral">Ephemeral — deleted after task</option>
+                            <option value="@AgentSpawnLifecycle.Pooled">Pooled — returned to Idle</option>
+                            <option value="@AgentSpawnLifecycle.Persistent">Persistent — kept with memory</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Result Aggregation</label>
+                        <select class="form-input" @bind="agent.SpawnAggregation">
+                            <option value="@AgentSpawnAggregation.CollectAll">Collect All</option>
+                            <option value="@AgentSpawnAggregation.FirstWins">First Wins</option>
+                            <option value="@AgentSpawnAggregation.Voting">Voting</option>
+                            <option value="@AgentSpawnAggregation.LLMSynthesize">LLM Synthesize</option>
+                        </select>
+                    </div>
+                    <div class="spawn-preview-box">
+                        <i class="bi bi-info-circle text-accent"></i>
+                        <span class="text-sm">
+                            Up to <strong>@agent.MaxSpawns</strong> child agents ·
+                            <strong>@agent.SpawnLifecycle</strong> lifecycle ·
+                            <strong>@agent.SpawnAggregation</strong> aggregation ·
+                            max depth <strong>@agent.MaxDepth</strong>
+                        </span>
+                    </div>
+                }
+            </div>
+        }
+
         <!-- Navigation buttons -->
         <div class="form-actions mt-4">
             @if (currentStep > 1)
@@ -353,7 +448,7 @@
                 <button class="btn btn-ghost" @onclick='() => Nav.NavigateTo("/agents")'>Cancel</button>
             }
 
-            @if (currentStep < 4)
+            @if (currentStep < 5)
             {
                 <button class="btn btn-primary ml-auto" @onclick="NextStep">
                     Next <i class="bi bi-arrow-right"></i>

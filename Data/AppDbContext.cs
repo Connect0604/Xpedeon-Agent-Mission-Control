@@ -51,6 +51,8 @@ public class AppDbContext : DbContext
              .HasForeignKey(p => p.AgentId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(a => a.Schedule).WithOne(s => s.Agent)
              .HasForeignKey<AgentSchedule>(s => s.AgentId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(a => a.ParentAgent).WithMany(a => a.ChildAgents)
+             .HasForeignKey(a => a.ParentAgentId).OnDelete(DeleteBehavior.SetNull);
         });
 
         // AgentTask

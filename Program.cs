@@ -23,6 +23,7 @@ builder.Services.AddScoped<LLMProviderService>();
 builder.Services.AddScoped<TemplateService>();
 builder.Services.AddScoped<SwarmService>();
 builder.Services.AddScoped<SelfLearningService>();
+builder.Services.AddScoped<DynamicSpawnService>();
 builder.Services.AddHostedService<AgentSchedulerService>();
 builder.Services.AddScoped<MemoryService>();
 builder.Services.AddScoped<LLMExecutionService>();

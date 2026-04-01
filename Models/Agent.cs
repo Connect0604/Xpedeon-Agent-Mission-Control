@@ -64,6 +64,22 @@ public class Agent
     public bool RequiresApproval { get; set; } = false;
     public double ConfidenceThreshold { get; set; } = 0.8;
 
+    // Dynamic Spawning — configuration (set by user)
+    public bool SpawnEnabled { get; set; } = false;
+    public AgentSpawnMode SpawnMode { get; set; } = AgentSpawnMode.RuleBased;
+    public AgentSpawnTriggerType SpawnTriggerType { get; set; } = AgentSpawnTriggerType.SplitByNewline;
+    public string SpawnTrigger { get; set; } = string.Empty;
+    public int MaxSpawns { get; set; } = 10;
+    public int MaxDepth { get; set; } = 2;
+    public string ChildPromptTemplate { get; set; } = string.Empty;
+    public AgentSpawnLifecycle SpawnLifecycle { get; set; } = AgentSpawnLifecycle.Ephemeral;
+    public AgentSpawnAggregation SpawnAggregation { get; set; } = AgentSpawnAggregation.CollectAll;
+
+    // Dynamic Spawning — runtime tracking (set by system)
+    public bool IsEphemeral { get; set; } = false;
+    public string? ParentAgentId { get; set; }
+    public int SpawnDepth { get; set; } = 0;
+
     // Navigation
     public List<AgentTool> Tools { get; set; } = new();
     public List<AgentMCPServer> MCPServers { get; set; } = new();
@@ -71,6 +87,8 @@ public class Agent
     public List<AgentMemory> Memories { get; set; } = new();
     public List<PromptHistory> PromptHistory { get; set; } = new();
     public AgentSchedule? Schedule { get; set; }
+    public Agent? ParentAgent { get; set; }
+    public List<Agent> ChildAgents { get; set; } = new();
 
     // Computed
     public TimeSpan Uptime => DateTime.UtcNow - StartedAt;
