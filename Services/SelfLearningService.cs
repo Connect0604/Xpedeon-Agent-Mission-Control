@@ -40,7 +40,7 @@ public class SelfLearningService
         var positive = rated.Count(t => t.FeedbackRating == 1);
         var negative = rated.Count(t => t.FeedbackRating == -1);
 
-        var history = await db.PromptHistory
+        var history = await db.PromptHistories
             .Where(p => p.AgentId == agentId)
             .OrderByDescending(p => p.CreatedAt)
             .ToListAsync();
@@ -146,7 +146,7 @@ public class SelfLearningService
             CreatedAt     = DateTime.UtcNow
         };
 
-        db.PromptHistory.Add(historyEntry);
+        db.PromptHistories.Add(historyEntry);
         agent.SystemPrompt = newPrompt;
         agent.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
