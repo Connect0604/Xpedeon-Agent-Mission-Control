@@ -185,7 +185,7 @@ public class AgentService
         };
     }
 
-    private static void LogAsync(AppDbContext db, string? agentId, string agentName, string message, AgentLogLevel level)
+    private static Task LogAsync(AppDbContext db, string? agentId, string agentName, string message, AgentLogLevel level)
     {
         db.Logs.Add(new LogEntry
         {
@@ -195,5 +195,6 @@ public class AgentService
             Level = level,
             Timestamp = DateTime.UtcNow
         });
+        return Task.CompletedTask;
     }
 }

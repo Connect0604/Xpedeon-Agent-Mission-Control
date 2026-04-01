@@ -32,7 +32,7 @@ public class SelfLearningService
     {
         await using var db = _factory.CreateDbContext();
 
-        var tasks = await db.AgentTasks
+        var tasks = await db.Tasks
             .Where(t => t.AgentId == agentId && t.Status == AgentTaskStatus.Completed)
             .ToListAsync();
 
@@ -78,7 +78,7 @@ public class SelfLearningService
             throw new InvalidOperationException("Agent has no system prompt to refine.");
 
         // Collect recent negative-feedback samples
-        var negativeTasks = await db.AgentTasks
+        var negativeTasks = await db.Tasks
             .Where(t => t.AgentId == agentId
                      && t.FeedbackRating == -1
                      && !string.IsNullOrEmpty(t.Output))
@@ -86,7 +86,7 @@ public class SelfLearningService
             .Take(5)
             .ToListAsync();
 
-        var positiveTasks = await db.AgentTasks
+        var positiveTasks = await db.Tasks
             .Where(t => t.AgentId == agentId
                      && t.FeedbackRating == 1
                      && !string.IsNullOrEmpty(t.Output))
@@ -140,19 +140,17 @@ public class SelfLearningService
             AgentId       = agentId,
             Prompt        = newPrompt,
             Version       = stats.CurrentVersion + 1,
-            ChangedBy     = "SelfLearning",
-            ChangeReason  = reason,
+            ChangeReason  = PromptChangeReason.FeedbackDriven,
+            ChangeNote    = reason,
             SuccessRateAtChange = stats.SuccessRate,
             CreatedAt     = DateTime.UtcNow
         };
 
         db.PromptHistories.Add(historyEntry);
         agent.SystemPrompt = newPrompt;
-        agent.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
 
-        await _log.AddAsync(agentId, AgentLogLevel.Info,
-            $"[SelfLearning] Prompt evolved to v{historyEntry.Version}. Success rate at change: {stats.SuccessRate:F1}%");
+        await _log.AddAsync(agentId, agent.Name, $"[SelfLearning] Prompt evolved to v{historyEntry.Version}. Success rate at change: {stats.SuccessRate:F1}%", AgentLogLevel.Info);
     }
 
     /// <summary>
@@ -178,7 +176,7 @@ public class SelfLearningService
             AgentId   = agentId,
             Type      = MemoryType.Episodic,
             Key       = $"task:{task.Id}",
-            Value     = content.Length > 2000 ? content[..2000] : content,
+            Content   = content.Length > 2000 ? content[..2000] : content,
             CreatedAt = DateTime.UtcNow
         });
 

@@ -83,10 +83,13 @@ else
                             <div class="prompt-history-body">
                                 <div class="prompt-history-meta">
                                     <span class="text-sm font-medium">@h.ChangeReason</span>
-                                    <span class="text-xs text-muted ml-2">by @h.ChangedBy</span>
+                                    @if (!string.IsNullOrWhiteSpace(h.ChangeNote))
+                                    {
+                                        <span class="text-xs text-muted ml-2">— @h.ChangeNote</span>
+                                    }
                                     @if (h.SuccessRateAtChange > 0)
                                     {
-                                        <span class="text-xs text-muted ml-2">· @h.SuccessRateAtChange.ToString("F1")% success rate at change</span>
+                                        <span class="text-xs text-muted ml-2">· @h.SuccessRateAtChange?.ToString("F1")% success rate at change</span>
                                     }
                                 </div>
                                 <div class="text-xs text-muted">@h.CreatedAt.ToString("MMM d, yyyy HH:mm")</div>

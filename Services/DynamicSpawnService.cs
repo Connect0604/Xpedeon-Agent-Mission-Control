@@ -158,9 +158,9 @@ public class DynamicSpawnService
 
     // ── Decomposition ────────────────────────────────────────────────
 
-    private static List<(string Name, string Prompt, string Input)> DecomposeRuleBased(Agent agent, string input)
+    private static List<(string Name, string Prompt, string Input)> DecomposeRuleBased(Agent agent, string input, AgentSpawnTriggerType? overrideTrigger = null)
     {
-        var items = agent.SpawnTriggerType switch
+        var items = (overrideTrigger ?? agent.SpawnTriggerType) switch
         {
             AgentSpawnTriggerType.SplitByNewline => input.Split('\n', StringSplitOptions.RemoveEmptyEntries),
             AgentSpawnTriggerType.SplitByComma   => input.Split(',',  StringSplitOptions.RemoveEmptyEntries),
@@ -204,7 +204,7 @@ Do not include any text outside the JSON array.";
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "LLM decomposition failed, falling back to newline split");
-            return DecomposeRuleBased(agent with { SpawnTriggerType = AgentSpawnTriggerType.SplitByNewline }, input);
+            return DecomposeRuleBased(agent, input, AgentSpawnTriggerType.SplitByNewline);
         }
     }
 
