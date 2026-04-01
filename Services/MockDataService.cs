@@ -1,5 +1,5 @@
 using XpedeonAgentMissionControl.Models;
-using ModelLogLevel = XpedeonAgentMissionControl.Models.LogLevel;
+using ModelLogLevel = XpedeonAgentMissionControl.Models.AgentLogLevel;
 
 namespace XpedeonAgentMissionControl.Services;
 

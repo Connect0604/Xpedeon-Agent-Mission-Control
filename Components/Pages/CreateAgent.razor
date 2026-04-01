@@ -361,7 +361,7 @@
             }
             else
             {
-                <button class="btn btn-primary ml-auto" @onclick="CreateAgent" disabled="@isSaving">
+                <button class="btn btn-primary ml-auto" @onclick="SubmitAgent" disabled="@isSaving">
                     @if (isSaving) { <span class="spinner"></span> }
                     <i class="bi bi-check-lg"></i> @(isSaving ? "Creating..." : "Create Agent")
                 </button>
@@ -455,7 +455,7 @@
 
     private void PrevStep() => currentStep--;
 
-    private async Task CreateAgent()
+    private async Task SubmitAgent()
     {
         errorMsg = "";
         if (string.IsNullOrWhiteSpace(agent.Name)) { errorMsg = "Agent name is required."; currentStep = 1; return; }

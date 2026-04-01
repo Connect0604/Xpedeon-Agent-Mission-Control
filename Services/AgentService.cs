@@ -76,7 +76,7 @@ public class AgentService
         db.Agents.Add(agent);
         await db.SaveChangesAsync();
 
-        await LogAsync(db, agent.Id, agent.Name, $"Agent '{agent.Name}' created", LogLevel.Info);
+        await LogAsync(db, agent.Id, agent.Name, $"Agent '{agent.Name}' created", AgentLogLevel.Info);
         await db.SaveChangesAsync();
 
         return agent;
@@ -136,7 +136,7 @@ public class AgentService
         agent.Status = status;
         agent.LastSeen = DateTime.UtcNow;
         await db.SaveChangesAsync();
-        await LogAsync(db, id, agent.Name, $"Status changed to {status}", LogLevel.Info);
+        await LogAsync(db, id, agent.Name, $"Status changed to {status}", AgentLogLevel.Info);
         await db.SaveChangesAsync();
     }
 
@@ -185,7 +185,7 @@ public class AgentService
         };
     }
 
-    private static void LogAsync(AppDbContext db, string? agentId, string agentName, string message, LogLevel level)
+    private static void LogAsync(AppDbContext db, string? agentId, string agentName, string message, AgentLogLevel level)
     {
         db.Logs.Add(new LogEntry
         {

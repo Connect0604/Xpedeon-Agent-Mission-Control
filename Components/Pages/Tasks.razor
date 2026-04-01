@@ -28,7 +28,7 @@
 <div class="filter-bar">
     <div class="search-box">
         <i class="bi bi-search"></i>
-        <input type="text" placeholder="Search tasks..." @bind="searchQuery" @bind:event="oninput" @oninput="ApplyFilter" />
+        <input type="text" placeholder="Search tasks..." @bind="searchQuery" @bind:event="oninput" @bind:after="ApplyFilter" />
     </div>
     @foreach (var prio in Priorities)
     {

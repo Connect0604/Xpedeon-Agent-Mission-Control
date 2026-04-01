@@ -311,13 +311,13 @@
         DataService.OnDataChanged -= HandleMockChange;
     }
 
-    private static string FeedIcon(LogLevel l) => l switch
+    private static string FeedIcon(AgentLogLevel l) => l switch
     {
-        LogLevel.Success  => "bi-check-circle",
-        LogLevel.Warning  => "bi-exclamation-circle",
-        LogLevel.Error    => "bi-x-circle",
-        LogLevel.Critical => "bi-shield-x",
-        LogLevel.Debug    => "bi-bug",
+        AgentLogLevel.Success  => "bi-check-circle",
+        AgentLogLevel.Warning  => "bi-exclamation-circle",
+        AgentLogLevel.Error    => "bi-x-circle",
+        AgentLogLevel.Critical => "bi-shield-x",
+        AgentLogLevel.Debug    => "bi-bug",
         _ => "bi-info-circle"
     };
 

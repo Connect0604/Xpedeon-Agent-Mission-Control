@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using XpedeonAgentMissionControl.Models;
-using ModelLogLevel = XpedeonAgentMissionControl.Models.LogLevel;
 
 namespace XpedeonAgentMissionControl.Data;
 
@@ -31,10 +31,12 @@ public class AppDbContext : DbContext
         {
             e.HasKey(a => a.Id);
             e.Property(a => a.CpuHistory).HasConversion(
-                v => string.Join(',', v),
-                v => v.Split(',', StringSplitOptions.RemoveEmptyEntries)
-                      .Select(x => double.TryParse(x, out var d) ? d : 0.0)
-                      .ToList()
+                new ValueConverter<List<double>, string>(
+                    v => string.Join(',', v),
+                    v => v.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                          .Select(x => double.TryParse(x, out var d) ? d : 0.0)
+                          .ToList()
+                )
             );
             e.Property(a => a.TotalCostUSD).HasColumnType("decimal(18,6)");
             e.HasOne(a => a.LLMProvider).WithMany(p => p.Agents)

@@ -176,7 +176,7 @@ public class TaskService
             {
                 AgentId = agent.Id, AgentName = agent.Name, TaskId = taskId,
                 Message = $"Task '{task.Name}' completed — {result.TotalTokens} tokens",
-                Level = LogLevel.Success, Timestamp = DateTime.UtcNow
+                Level = AgentLogLevel.Success, Timestamp = DateTime.UtcNow
             });
         }
         catch (Exception ex)
@@ -197,7 +197,7 @@ public class TaskService
             {
                 AgentId = agent.Id, AgentName = agent.Name, TaskId = taskId,
                 Message = $"Task '{task.Name}' failed: {ex.Message}",
-                Level = LogLevel.Error, Timestamp = DateTime.UtcNow
+                Level = AgentLogLevel.Error, Timestamp = DateTime.UtcNow
             });
         }
 

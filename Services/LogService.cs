@@ -29,7 +29,7 @@ public class LogService
             .ToListAsync();
     }
 
-    public async Task<List<LogEntry>> SearchAsync(string? search, LogLevel? level, string? agentName, int count = 200)
+    public async Task<List<LogEntry>> SearchAsync(string? search, AgentLogLevel? level, string? agentName, int count = 200)
     {
         await using var db = _factory.CreateDbContext();
         var q = db.Logs.AsQueryable();
@@ -46,7 +46,7 @@ public class LogService
         return await q.OrderByDescending(l => l.Timestamp).Take(count).ToListAsync();
     }
 
-    public async Task AddAsync(string? agentId, string agentName, string message, LogLevel level, string? taskId = null)
+    public async Task AddAsync(string? agentId, string agentName, string message, AgentLogLevel level, string? taskId = null)
     {
         await using var db = _factory.CreateDbContext();
         db.Logs.Add(new LogEntry

@@ -151,7 +151,7 @@ public class SelfLearningService
         agent.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync();
 
-        await _log.AddAsync(agentId, LogLevel.Info,
+        await _log.AddAsync(agentId, AgentLogLevel.Info,
             $"[SelfLearning] Prompt evolved to v{historyEntry.Version}. Success rate at change: {stats.SuccessRate:F1}%");
     }
 

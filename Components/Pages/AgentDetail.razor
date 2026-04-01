@@ -108,6 +108,11 @@ else
         </button>
     </div>
 
+    @{
+        var runningTask  = agentTasks.FirstOrDefault(t => t.Status == AgentTaskStatus.Running);
+        var pendingTasks = agentTasks.Where(t => t.Status == AgentTaskStatus.PendingApproval).ToList();
+    }
+
     <!-- Overview Tab -->
     @if (activeTab == "overview")
     {
@@ -221,7 +226,6 @@ else
         </div>
 
         <!-- Running task progress -->
-        @{var runningTask = agentTasks.FirstOrDefault(t => t.Status == AgentTaskStatus.Running);}
         @if (runningTask != null)
         {
             <div class="card card-pad mt-4 running-task-card">
@@ -239,7 +243,6 @@ else
         }
 
         <!-- Pending approvals -->
-        @{var pendingTasks = agentTasks.Where(t => t.Status == AgentTaskStatus.PendingApproval).ToList();}
         @if (pendingTasks.Any())
         {
             <div class="card card-pad mt-4" style="border-color:var(--c-warning-border);">
