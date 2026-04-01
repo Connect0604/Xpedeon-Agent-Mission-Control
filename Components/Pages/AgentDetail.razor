@@ -3,6 +3,7 @@
 @implements IDisposable
 @inject AgentService AgentService
 @inject TaskService TaskService
+@inject MemoryService MemoryService
 @inject MockDataService DataService
 @inject NavigationManager Nav
 
@@ -465,28 +466,56 @@ else
     @if (activeTab == "memory")
     {
         <div class="card card-pad mt-4">
-            <div class="section-head"><i class="bi bi-memory"></i> Agent Memory</div>
-            @if (!agentMemories.Any())
+            <div style="display:flex;align-items:center;gap:var(--s3);margin-bottom:var(--s4);flex-wrap:wrap;">
+                <div class="section-head" style="margin:0;"><i class="bi bi-memory"></i> Agent Memory</div>
+                <span class="text-xs text-muted">@agentMemories.Count entries</span>
+                <div class="ml-auto" style="display:flex;gap:var(--s2);flex-wrap:wrap;">
+                    @foreach (var mt in new[] { "", "ShortTerm", "LongTerm", "Episodic", "Swarm" })
+                    {
+                        <button class="btn btn-ghost btn-sm @(memoryTypeFilter == mt ? "tab on" : "")"
+                                @onclick="() => SetMemoryFilter(mt)">
+                            @(mt == "" ? "All" : mt)
+                        </button>
+                    }
+                </div>
+            </div>
+            <div class="form-group mb-4">
+                <input class="form-input" placeholder="Search memories…" @bind="memorySearch" @bind:event="oninput" />
+            </div>
+            @{
+                var filtered = agentMemories
+                    .Where(m => string.IsNullOrEmpty(memoryTypeFilter) || m.Type.ToString() == memoryTypeFilter)
+                    .Where(m => string.IsNullOrEmpty(memorySearch) || m.Key.Contains(memorySearch, StringComparison.OrdinalIgnoreCase) || m.Content.Contains(memorySearch, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
+            @if (!filtered.Any())
             {
                 <div class="empty-state" style="padding:var(--s6);">
                     <div class="empty-icon"><i class="bi bi-memory"></i></div>
-                    <div class="empty-title">No memories stored</div>
-                    <div class="empty-desc">Memories are created as the agent runs tasks.</div>
+                    <div class="empty-title">@(agentMemories.Any() ? "No matches" : "No memories stored")</div>
+                    <div class="empty-desc">@(agentMemories.Any() ? "Try a different filter or search term." : "Memories are created as the agent runs tasks.")</div>
                 </div>
             }
             else
             {
                 <div class="memory-list">
-                    @foreach (var mem in agentMemories)
+                    @foreach (var mem in filtered)
                     {
                         <div class="memory-item">
                             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s1);">
-                                <span class="tag">@mem.Type</span>
-                                <span class="text-xs text-muted">@RelTime(mem.CreatedAt)</span>
+                                <div style="display:flex;gap:var(--s2);align-items:center;">
+                                    <span class="tag">@mem.Type</span>
+                                    <span class="text-xs font-mono text-muted">@mem.Key</span>
+                                </div>
+                                <div style="display:flex;gap:var(--s2);align-items:center;">
+                                    <span class="text-xs text-muted">@RelTime(mem.CreatedAt)</span>
+                                    <button class="btn btn-ghost btn-sm text-error" @onclick="() => DeleteMemory(mem.Id)" title="Delete">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
                             </div>
-                            <div class="text-xs font-mono text-muted mb-1">@mem.Key</div>
-                            <div class="text-sm text-secondary">@mem.Content[..Math.Min(200, mem.Content.Length)]@(mem.Content.Length > 200 ? "..." : "")</div>
-                            <div class="text-xs text-muted mt-1">Accessed @mem.AccessCount times</div>
+                            <div class="text-sm text-secondary" style="white-space:pre-wrap;word-break:break-word;">@(mem.Content.Length > 300 ? mem.Content[..300] + "…" : mem.Content)</div>
+                            <div class="text-xs text-muted mt-1">Accessed @mem.AccessCount× · Last: @mem.LastAccessedAt.ToString("MMM d HH:mm")</div>
                         </div>
                     }
                 </div>
@@ -591,6 +620,8 @@ else
     private List<LogEntry> agentLogs = new();
     private List<AgentMemory> agentMemories = new();
     private string activeTab = "overview";
+    private string memoryTypeFilter = "";
+    private string memorySearch = "";
     private AgentTask? selectedTask;
 
     // Run modal
@@ -621,6 +652,7 @@ else
         if (agent == null) return;
         agentTasks = await TaskService.GetForAgentAsync(AgentId, 50);
         agentLogs = DataService.GetLogsForAgent(AgentId, 50).ToList();
+        agentMemories = await MemoryService.GetForAgentAsync(AgentId);
 
         // Refresh selected task
         if (selectedTask != null)
@@ -665,6 +697,14 @@ else
         await TaskService.ApproveTaskAsync(taskId);
         await RefreshAsync();
     }
+
+    private async Task DeleteMemory(string memoryId)
+    {
+        await MemoryService.DeleteAsync(memoryId);
+        agentMemories = await MemoryService.GetForAgentAsync(AgentId);
+    }
+
+    private void SetMemoryFilter(string filter) => memoryTypeFilter = filter;
 
     private async Task CancelTask(string taskId)
     {

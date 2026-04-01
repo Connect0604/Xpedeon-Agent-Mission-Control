@@ -1,5 +1,6 @@
 @page "/agents/{AgentId}/edit"
 @rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
 @inject AgentService AgentService
 @inject LLMProviderService ProviderService
 @inject IDbContextFactory<AppDbContext> DbFactory
@@ -141,6 +142,38 @@ else
             </div>
         </div>
 
+        <!-- MCP Servers -->
+        <div class="card card-pad">
+            <h3 class="section-title mb-4">MCP Servers</h3>
+            <p class="text-secondary text-sm mb-4">Attach non-global MCP servers to this agent.</p>
+            @if (!allMcpServers.Any())
+            {
+                <div class="text-muted text-sm">No MCP servers configured. <a href="/mcp" class="text-accent">Add one first.</a></div>
+            }
+            else
+            {
+                <div class="mcp-assign-list">
+                    @foreach (var mcp in allMcpServers)
+                    {
+                        var isAssigned = assignedMcpIds.Contains(mcp.Id);
+                        <label class="mcp-assign-row @(isAssigned ? "mcp-assign-row--on" : "")">
+                            <input type="checkbox" checked="@isAssigned"
+                                   @onchange="e => ToggleMcp(mcp.Id, (bool)(e.Value ?? false))" />
+                            <div class="mcp-assign-info">
+                                <span class="text-sm font-medium">@mcp.Name</span>
+                                @if (mcp.IsGlobal)
+                                {
+                                    <span class="badge badge-accent ml-2 text-xs">Global</span>
+                                }
+                                <div class="text-xs font-mono text-muted">@mcp.Endpoint</div>
+                            </div>
+                            <span class="mcp-transport-badge @mcp.TransportType.ToString().ToLower() ml-auto">@mcp.TransportType</span>
+                        </label>
+                    }
+                </div>
+            }
+        </div>
+
         <!-- Advanced -->
         <div class="card card-pad">
             <h3 class="section-title mb-4">Advanced</h3>
@@ -273,6 +306,8 @@ else
 
     private Agent? agent;
     private List<LLMProvider> providers = new();
+    private List<MCPServer> allMcpServers = new();
+    private HashSet<string> assignedMcpIds = new();
     private bool isSaving;
     private bool showDeleteConfirm;
     private string errorMsg = "";
@@ -288,6 +323,12 @@ else
         agent = await AgentService.GetByIdAsync(AgentId);
         providers = await ProviderService.GetAllAsync();
 
+        await using var db = DbFactory.CreateDbContext();
+        allMcpServers = await db.MCPServers.Where(m => m.IsEnabled).OrderBy(m => m.Name).ToListAsync();
+
+        var existing = await db.AgentMCPServers.Where(a => a.AgentId == AgentId).ToListAsync();
+        assignedMcpIds = existing.Select(a => a.MCPServerId).ToHashSet();
+
         if (agent?.Schedule != null)
         {
             scheduleEnabled = agent.Schedule.IsEnabled;
@@ -295,6 +336,12 @@ else
             scheduleInput = agent.Schedule.DefaultInput ?? "";
             schedulePriority = agent.Schedule.Priority;
         }
+    }
+
+    private void ToggleMcp(string mcpId, bool assigned)
+    {
+        if (assigned) assignedMcpIds.Add(mcpId);
+        else assignedMcpIds.Remove(mcpId);
     }
 
     private async Task SaveAgent()
@@ -335,6 +382,22 @@ else
                 existing.IsEnabled = false;
             }
             await db.SaveChangesAsync();
+
+            // Save MCP assignments
+            await using var db2 = DbFactory.CreateDbContext();
+            var currentAssignments = await db2.AgentMCPServers.Where(a => a.AgentId == AgentId).ToListAsync();
+
+            // Remove unselected
+            var toRemove = currentAssignments.Where(a => !assignedMcpIds.Contains(a.MCPServerId)).ToList();
+            db2.AgentMCPServers.RemoveRange(toRemove);
+
+            // Add newly selected
+            var existingIds = currentAssignments.Select(a => a.MCPServerId).ToHashSet();
+            foreach (var mcpId in assignedMcpIds.Where(id => !existingIds.Contains(id)))
+            {
+                db2.AgentMCPServers.Add(new AgentMCPServer { AgentId = AgentId, MCPServerId = mcpId });
+            }
+            await db2.SaveChangesAsync();
 
             Nav.NavigateTo($"/agents/{AgentId}");
         }
