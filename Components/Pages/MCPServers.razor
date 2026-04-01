@@ -1,0 +1,231 @@
+@page "/mcp"
+@rendermode InteractiveServer
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Nav
+
+<PageTitle>MCP Servers — Xpedeon AMC</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">MCP Servers</h1>
+        <p class="page-subtitle">Model Context Protocol servers — extend agents with tools and data sources</p>
+    </div>
+    <button class="btn btn-primary" @onclick="OpenCreate">
+        <i class="bi bi-plus-lg"></i> Add MCP Server
+    </button>
+</div>
+
+@if (!servers.Any())
+{
+    <div class="card card-pad empty-state">
+        <div class="empty-icon"><i class="bi bi-plug"></i></div>
+        <div class="empty-title">No MCP servers configured</div>
+        <div class="empty-desc">Connect MCP servers to give agents access to tools, databases, APIs, and more.</div>
+        <button class="btn btn-primary mt-4" @onclick="OpenCreate">
+            <i class="bi bi-plus-lg"></i> Add your first MCP server
+        </button>
+    </div>
+}
+else
+{
+    <!-- Global servers -->
+    @if (servers.Any(s => s.IsGlobal))
+    {
+        <div class="section-header">
+            <i class="bi bi-globe text-accent"></i>
+            <span>Global</span>
+            <span class="text-muted text-xs ml-1">(available to all agents)</span>
+        </div>
+        <div class="mcp-grid">
+            @foreach (var s in servers.Where(s => s.IsGlobal))
+            {
+                <MCPServerCard Server="s" OnEdit="OpenEdit" OnDelete="ConfirmDelete" />
+            }
+        </div>
+    }
+
+    <!-- Per-agent servers -->
+    @if (servers.Any(s => !s.IsGlobal))
+    {
+        <div class="section-header mt-6">
+            <i class="bi bi-robot text-accent2"></i>
+            <span>Agent-specific</span>
+        </div>
+        <div class="mcp-grid">
+            @foreach (var s in servers.Where(s => !s.IsGlobal))
+            {
+                <MCPServerCard Server="s" OnEdit="OpenEdit" OnDelete="ConfirmDelete" />
+            }
+        </div>
+    }
+}
+
+<!-- Add/Edit Modal -->
+@if (showModal)
+{
+    <div class="modal-backdrop" @onclick="CloseModal">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2 class="modal-title">@(editingId == null ? "Add MCP Server" : "Edit MCP Server")</h2>
+                <button class="modal-close" @onclick="CloseModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Name <span class="text-error">*</span></label>
+                    <input class="form-input" @bind="form.Name" placeholder="e.g. Xpedeon ERP MCP" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <input class="form-input" @bind="form.Description" placeholder="What does this server provide?" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Transport Type</label>
+                    <select class="form-input" @bind="form.TransportType">
+                        @foreach (var t in Enum.GetValues<MCPTransportType>())
+                        {
+                            <option value="@t">@t</option>
+                        }
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Endpoint <span class="text-error">*</span></label>
+                    <input class="form-input font-mono" @bind="form.Endpoint"
+                           placeholder="@EndpointPlaceholder(form.TransportType)" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Auth Token <span class="text-muted text-xs">(optional)</span></label>
+                    <input class="form-input font-mono" type="password" @bind="form.AuthToken" placeholder="Bearer token..." />
+                </div>
+                <div class="form-row">
+                    <label class="form-check">
+                        <input type="checkbox" @bind="form.IsGlobal" />
+                        <span>Global (available to all agents)</span>
+                    </label>
+                    <label class="form-check">
+                        <input type="checkbox" @bind="form.IsEnabled" />
+                        <span>Enabled</span>
+                    </label>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(errorMsg))
+                {
+                    <div class="alert alert-error">@errorMsg</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" @onclick="CloseModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="Save" disabled="@isSaving">
+                    @(isSaving ? "Saving..." : editingId == null ? "Add Server" : "Save Changes")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Delete Confirm -->
+@if (deletingId != null)
+{
+    <div class="modal-backdrop" @onclick="() => deletingId = null">
+        <div class="modal modal--sm" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2 class="modal-title text-error">Remove MCP Server</h2>
+                <button class="modal-close" @onclick="() => deletingId = null"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-secondary">Remove <strong class="text-primary">@servers.FirstOrDefault(s => s.Id == deletingId)?.Name</strong>?</p>
+                <p class="text-muted text-sm mt-2">Agents connected to this server will lose access.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" @onclick="() => deletingId = null">Cancel</button>
+                <button class="btn btn-danger" @onclick="Delete">Remove</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<MCPServer> servers = new();
+    private bool showModal;
+    private bool isSaving;
+    private string? editingId;
+    private string? deletingId;
+    private string errorMsg = "";
+    private MCPServer form = new() { IsEnabled = true };
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        await using var db = DbFactory.CreateDbContext();
+        servers = await db.MCPServers.OrderByDescending(s => s.IsGlobal).ThenBy(s => s.Name).ToListAsync();
+        StateHasChanged();
+    }
+
+    private void OpenCreate()
+    {
+        editingId = null;
+        form = new MCPServer { IsEnabled = true };
+        errorMsg = "";
+        showModal = true;
+    }
+
+    private void OpenEdit(MCPServer s)
+    {
+        editingId = s.Id;
+        form = new MCPServer
+        {
+            Id = s.Id, Name = s.Name, Description = s.Description,
+            Endpoint = s.Endpoint, TransportType = s.TransportType,
+            AuthToken = s.AuthToken, IsGlobal = s.IsGlobal, IsEnabled = s.IsEnabled
+        };
+        errorMsg = "";
+        showModal = true;
+    }
+
+    private void CloseModal() { showModal = false; errorMsg = ""; }
+    private void ConfirmDelete(string id) => deletingId = id;
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(form.Name)) { errorMsg = "Name is required."; return; }
+        if (string.IsNullOrWhiteSpace(form.Endpoint)) { errorMsg = "Endpoint is required."; return; }
+
+        isSaving = true;
+        try
+        {
+            await using var db = DbFactory.CreateDbContext();
+            if (editingId == null)
+            {
+                form.Id = Guid.NewGuid().ToString();
+                form.CreatedAt = DateTime.UtcNow;
+                db.MCPServers.Add(form);
+            }
+            else
+            {
+                db.MCPServers.Update(form);
+            }
+            await db.SaveChangesAsync();
+            await LoadAsync();
+            CloseModal();
+        }
+        catch (Exception ex) { errorMsg = ex.Message; }
+        finally { isSaving = false; }
+    }
+
+    private async Task Delete()
+    {
+        if (deletingId == null) return;
+        await using var db = DbFactory.CreateDbContext();
+        var s = await db.MCPServers.FindAsync(deletingId);
+        if (s != null) { db.MCPServers.Remove(s); await db.SaveChangesAsync(); }
+        deletingId = null;
+        await LoadAsync();
+    }
+
+    private static string EndpointPlaceholder(MCPTransportType t) => t switch
+    {
+        MCPTransportType.SSE       => "https://your-mcp-server.com/sse",
+        MCPTransportType.Stdio     => "npx -y @modelcontextprotocol/server-filesystem /path",
+        MCPTransportType.WebSocket => "ws://localhost:8080/mcp",
+        _ => "endpoint url or command"
+    };
+}
