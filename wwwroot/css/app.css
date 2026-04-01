@@ -1924,6 +1924,23 @@ body::before {
 .badge-warning { background: var(--c-warning-bg); color: var(--c-warning); border: 1px solid var(--c-warning-border); }
 .badge-error   { background: var(--c-error-bg);   color: var(--c-error);  border: 1px solid var(--c-error-border); }
 
+/* ── MCP assign list (EditAgent) ─────────────────────────────────── */
+.mcp-assign-list { display: flex; flex-direction: column; gap: var(--s2); }
+.mcp-assign-row {
+    display: flex;
+    align-items: center;
+    gap: var(--s3);
+    padding: var(--s3) var(--s4);
+    border-radius: var(--r-md);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-elevated);
+    cursor: pointer;
+    transition: border-color var(--ease), background var(--ease);
+}
+.mcp-assign-row:hover { border-color: var(--accent-border); }
+.mcp-assign-row--on { border-color: var(--accent); background: var(--accent-glow); }
+.mcp-assign-info { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+
 /* ── btn-danger / btn-sm / section-header ────────────────────────── */
 .btn-danger { background: var(--c-error-bg); color: var(--c-error); border: 1px solid var(--c-error-border); }
 .btn-danger:hover { background: var(--c-error); color: #fff; }
