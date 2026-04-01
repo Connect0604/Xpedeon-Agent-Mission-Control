@@ -1,0 +1,58 @@
+@* MCP Server card component *@
+
+<div class="mcp-card @(!Server.IsEnabled ? "mcp-card--disabled" : "")">
+    <div class="mcp-card__header">
+        <div class="mcp-icon">
+            <i class="bi @TransportIcon"></i>
+        </div>
+        <div class="mcp-card__meta">
+            <div class="mcp-card__name">@Server.Name</div>
+            @if (!string.IsNullOrWhiteSpace(Server.Description))
+            {
+                <div class="text-xs text-muted">@Server.Description</div>
+            }
+        </div>
+        @if (Server.IsGlobal)
+        {
+            <span class="badge badge-accent ml-auto">Global</span>
+        }
+    </div>
+
+    <div class="mcp-card__body">
+        <div class="mcp-stat">
+            <span class="text-muted text-xs">Transport</span>
+            <span class="text-sm">@Server.TransportType</span>
+        </div>
+        <div class="mcp-stat">
+            <span class="text-muted text-xs">Endpoint</span>
+            <span class="text-sm font-mono truncate">@Server.Endpoint</span>
+        </div>
+    </div>
+
+    <div class="mcp-card__footer">
+        <span class="dot @(Server.IsEnabled ? "active" : "offline") sm"></span>
+        <span class="text-xs text-muted">@(Server.IsEnabled ? "Enabled" : "Disabled")</span>
+        <div class="ml-auto" style="display:flex;gap:var(--s2);">
+            <button class="btn btn-ghost btn-sm" @onclick="() => OnEdit.InvokeAsync(Server)">
+                <i class="bi bi-pencil"></i>
+            </button>
+            <button class="btn btn-ghost btn-sm text-error" @onclick="() => OnDelete.InvokeAsync(Server.Id)">
+                <i class="bi bi-trash"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public MCPServer Server { get; set; } = null!;
+    [Parameter] public EventCallback<MCPServer> OnEdit { get; set; }
+    [Parameter] public EventCallback<string> OnDelete { get; set; }
+
+    private string TransportIcon => Server.TransportType switch
+    {
+        MCPTransportType.SSE       => "bi-broadcast",
+        MCPTransportType.Stdio     => "bi-terminal",
+        MCPTransportType.WebSocket => "bi-diagram-2",
+        _ => "bi-plug"
+    };
+}

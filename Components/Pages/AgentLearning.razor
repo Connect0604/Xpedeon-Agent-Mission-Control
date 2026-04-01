@@ -1,0 +1,318 @@
+@page "/agents/{AgentId}/learning"
+@rendermode InteractiveServer
+@inject SelfLearningService LearningService
+@inject AgentService AgentService
+@inject NavigationManager Nav
+
+<PageTitle>Self-Learning — Xpedeon AMC</PageTitle>
+
+@if (agent == null)
+{
+    <div class="empty-state">
+        <div class="empty-icon"><i class="bi bi-robot"></i></div>
+        <div class="empty-title">Agent not found</div>
+        <a href="/agents" class="btn btn-ghost mt-4"><i class="bi bi-arrow-left"></i> Back</a>
+    </div>
+}
+else
+{
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">Self-Learning</h1>
+            <p class="page-subtitle">@agent.Name — Feedback loop & prompt evolution</p>
+        </div>
+        <div style="display:flex;gap:var(--s2);">
+            <button class="btn btn-ghost" @onclick='() => Nav.NavigateTo($"/agents/{AgentId}")'>
+                <i class="bi bi-arrow-left"></i> Back to Agent
+            </button>
+        </div>
+    </div>
+
+    @if (stats == null)
+    {
+        <div class="text-muted text-sm">Loading stats…</div>
+    }
+    else
+    {
+        <!-- KPI Row -->
+        <div class="learning-kpi-row">
+            <div class="learning-kpi">
+                <div class="learning-kpi__val">@stats.TotalTasks</div>
+                <div class="learning-kpi__lbl">Total Tasks</div>
+            </div>
+            <div class="learning-kpi">
+                <div class="learning-kpi__val">@stats.RatedTasks</div>
+                <div class="learning-kpi__lbl">Rated</div>
+            </div>
+            <div class="learning-kpi text-success">
+                <div class="learning-kpi__val">@stats.PositiveRatings</div>
+                <div class="learning-kpi__lbl">Positive</div>
+            </div>
+            <div class="learning-kpi text-error">
+                <div class="learning-kpi__val">@stats.NegativeRatings</div>
+                <div class="learning-kpi__lbl">Negative</div>
+            </div>
+            <div class="learning-kpi">
+                <div class="learning-kpi__val">@stats.SuccessRate.ToString("F1")%</div>
+                <div class="learning-kpi__lbl">Success Rate</div>
+            </div>
+            <div class="learning-kpi">
+                <div class="learning-kpi__val">v@stats.CurrentVersion</div>
+                <div class="learning-kpi__lbl">Prompt Version</div>
+            </div>
+        </div>
+
+        <!-- Prompt Evolution Timeline -->
+        <div class="card card-pad mt-4">
+            <div class="section-header mb-4">
+                <i class="bi bi-clock-history text-accent"></i>
+                <span>Prompt Evolution History</span>
+                <span class="text-muted text-xs ml-1">(@stats.PromptVersions versions)</span>
+            </div>
+            @if (!stats.PromptHistory.Any())
+            {
+                <div class="text-muted text-sm">No prompt history yet. Save changes to create the first version.</div>
+            }
+            else
+            {
+                <div class="prompt-history-list">
+                    @foreach (var h in stats.PromptHistory)
+                    {
+                        <div class="prompt-history-item @(h.Version == stats.CurrentVersion ? "prompt-history-item--current" : "")">
+                            <div class="prompt-history-version">v@h.Version</div>
+                            <div class="prompt-history-body">
+                                <div class="prompt-history-meta">
+                                    <span class="text-sm font-medium">@h.ChangeReason</span>
+                                    <span class="text-xs text-muted ml-2">by @h.ChangedBy</span>
+                                    @if (h.SuccessRateAtChange > 0)
+                                    {
+                                        <span class="text-xs text-muted ml-2">· @h.SuccessRateAtChange.ToString("F1")% success rate at change</span>
+                                    }
+                                </div>
+                                <div class="text-xs text-muted">@h.CreatedAt.ToString("MMM d, yyyy HH:mm")</div>
+                                <pre class="prompt-snippet">@Truncate(h.Prompt, 300)</pre>
+                                @if (h.Version != stats.CurrentVersion)
+                                {
+                                    <button class="btn btn-ghost btn-sm mt-2" @onclick="() => PreviewRevert(h)">
+                                        <i class="bi bi-arrow-counterclockwise"></i> Revert to this version
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- AI Refinement -->
+        <div class="card card-pad mt-4">
+            <div class="section-header mb-4">
+                <i class="bi bi-stars text-accent"></i>
+                <span>AI Prompt Refinement</span>
+            </div>
+            <p class="text-secondary text-sm mb-4">
+                The AI analyses your negative feedback samples and suggests an improved system prompt.
+                You review and approve before any changes are applied.
+            </p>
+
+            @if (stats.NegativeRatings == 0)
+            {
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i>
+                    No negative feedback yet. Rate some task outputs with thumbs down to enable AI refinement.
+                </div>
+            }
+            else
+            {
+                <div class="refinement-info-row">
+                    <div class="refinement-info-pill">
+                        <i class="bi bi-hand-thumbs-down text-error"></i>
+                        @stats.NegativeRatings negative samples available
+                    </div>
+                    <div class="refinement-info-pill">
+                        <i class="bi bi-hand-thumbs-up text-success"></i>
+                        @stats.PositiveRatings positive samples available
+                    </div>
+                </div>
+
+                <button class="btn btn-primary mt-4" @onclick="GenerateRefinement" disabled="@isGenerating">
+                    @if (isGenerating) { <span class="spinner"></span> }
+                    <i class="bi bi-stars"></i> @(isGenerating ? "Analysing feedback…" : "Generate Improved Prompt")
+                </button>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(errorMsg))
+            {
+                <div class="alert alert-error mt-4">@errorMsg</div>
+            }
+
+            @if (suggestion != null)
+            {
+                <div class="refinement-suggestion mt-4">
+                    <div class="refinement-suggestion__header">
+                        <i class="bi bi-lightbulb text-warning"></i>
+                        <span class="font-medium">Suggested Prompt (v@(stats.CurrentVersion + 1))</span>
+                        <span class="text-xs text-muted ml-2">Generated @suggestion.GeneratedAt.ToString("HH:mm")</span>
+                    </div>
+                    <div class="refinement-diff-row">
+                        <div class="refinement-diff-col">
+                            <div class="text-xs text-muted mb-2">Current (v@stats.CurrentVersion)</div>
+                            <pre class="prompt-editor-display">@suggestion.CurrentPrompt</pre>
+                        </div>
+                        <div class="refinement-diff-col">
+                            <div class="text-xs text-muted mb-2">Suggested (v@(stats.CurrentVersion + 1))</div>
+                            <textarea class="form-input prompt-editor" rows="14" @bind="suggestion.SuggestedPrompt"></textarea>
+                        </div>
+                    </div>
+                    <div class="form-group mt-4">
+                        <label class="form-label">Reason for change <span class="text-error">*</span></label>
+                        <input class="form-input" @bind="applyReason" placeholder="e.g. Improved based on Q1 feedback" />
+                    </div>
+                    <div style="display:flex;gap:var(--s3);margin-top:var(--s4);">
+                        <button class="btn btn-ghost" @onclick="() => suggestion = null">Discard</button>
+                        <button class="btn btn-primary ml-auto" @onclick="ApplyRefinement" disabled="@isApplying">
+                            @if (isApplying) { <span class="spinner"></span> }
+                            <i class="bi bi-check-lg"></i> @(isApplying ? "Applying…" : "Apply & Save as New Version")
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Recent Tasks Feedback -->
+        <div class="card card-pad mt-4">
+            <div class="section-header mb-4">
+                <i class="bi bi-list-task text-accent2"></i>
+                <span>Recent Task Feedback</span>
+            </div>
+            @if (!stats.RecentTasks.Any())
+            {
+                <div class="text-muted text-sm">No completed tasks yet.</div>
+            }
+            else
+            {
+                <div class="feedback-task-list">
+                    @foreach (var t in stats.RecentTasks)
+                    {
+                        <div class="feedback-task-item">
+                            <div class="feedback-task-name text-sm font-medium">@t.Name</div>
+                            <div class="feedback-task-meta text-xs text-muted">
+                                @t.CreatedAt.ToString("MMM d HH:mm")
+                                @if (t.TotalTokens > 0)
+                                {
+                                    <span class="ml-2">· @t.TotalTokens tokens</span>
+                                }
+                            </div>
+                            <div class="feedback-rating ml-auto">
+                                @if (t.FeedbackRating == 1)
+                                {
+                                    <span class="badge badge-success"><i class="bi bi-hand-thumbs-up"></i> Good</span>
+                                }
+                                else if (t.FeedbackRating == -1)
+                                {
+                                    <span class="badge badge-error"><i class="bi bi-hand-thumbs-down"></i> Poor</span>
+                                }
+                                else
+                                {
+                                    <span class="text-xs text-muted">Not rated</span>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+}
+
+<!-- Revert Confirm Modal -->
+@if (revertTarget != null)
+{
+    <div class="modal-backdrop" @onclick="() => revertTarget = null">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2 class="modal-title">Revert Prompt</h2>
+                <button class="modal-close" @onclick="() => revertTarget = null"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-secondary">Revert to <strong>version @revertTarget.Version</strong>?</p>
+                <p class="text-muted text-sm mt-2">This will create a new prompt version (v@(stats!.CurrentVersion + 1)) with the old prompt text.</p>
+                <pre class="prompt-snippet mt-4">@Truncate(revertTarget.Prompt, 400)</pre>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" @onclick="() => revertTarget = null">Cancel</button>
+                <button class="btn btn-primary" @onclick="RevertToVersion">
+                    <i class="bi bi-arrow-counterclockwise"></i> Revert
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string AgentId { get; set; } = "";
+
+    private Agent? agent;
+    private AgentLearningStats? stats;
+    private PromptRefinementSuggestion? suggestion;
+    private PromptHistory? revertTarget;
+
+    private bool isGenerating;
+    private bool isApplying;
+    private string errorMsg = "";
+    private string applyReason = "AI-generated refinement from feedback analysis";
+
+    protected override async Task OnInitializedAsync()
+    {
+        agent = await AgentService.GetByIdAsync(AgentId);
+        if (agent != null)
+            stats = await LearningService.GetStatsAsync(AgentId);
+    }
+
+    private async Task GenerateRefinement()
+    {
+        isGenerating = true;
+        errorMsg = "";
+        try
+        {
+            suggestion = await LearningService.SuggestRefinementAsync(AgentId);
+            applyReason = "AI-generated refinement from feedback analysis";
+        }
+        catch (Exception ex) { errorMsg = ex.Message; }
+        finally { isGenerating = false; }
+    }
+
+    private async Task ApplyRefinement()
+    {
+        if (suggestion == null) return;
+        if (string.IsNullOrWhiteSpace(applyReason)) { errorMsg = "Please enter a reason."; return; }
+
+        isApplying = true;
+        errorMsg = "";
+        try
+        {
+            await LearningService.ApplyRefinementAsync(AgentId, suggestion.SuggestedPrompt, applyReason);
+            suggestion = null;
+            stats = await LearningService.GetStatsAsync(AgentId);
+        }
+        catch (Exception ex) { errorMsg = ex.Message; }
+        finally { isApplying = false; }
+    }
+
+    private void PreviewRevert(PromptHistory h) => revertTarget = h;
+
+    private async Task RevertToVersion()
+    {
+        if (revertTarget == null || stats == null) return;
+        await LearningService.ApplyRefinementAsync(AgentId, revertTarget.Prompt,
+            $"Reverted to v{revertTarget.Version}");
+        revertTarget = null;
+        stats = await LearningService.GetStatsAsync(AgentId);
+    }
+
+    private static string Truncate(string? text, int max)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        return text.Length <= max ? text : text[..max] + "…";
+    }
+}

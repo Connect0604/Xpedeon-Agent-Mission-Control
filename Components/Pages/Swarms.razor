@@ -1,0 +1,422 @@
+@page "/swarms"
+@rendermode InteractiveServer
+@inject SwarmService SwarmService
+@inject LLMProviderService ProviderService
+@inject NavigationManager Nav
+
+<PageTitle>Swarms — Xpedeon AMC</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Agent Swarms</h1>
+        <p class="page-subtitle">Coordinate groups of agents with shared strategies and memory</p>
+    </div>
+    <button class="btn btn-primary" @onclick="OpenCreate">
+        <i class="bi bi-diagram-3"></i> New Swarm
+    </button>
+</div>
+
+@if (!swarms.Any())
+{
+    <div class="card card-pad empty-state">
+        <div class="empty-icon"><i class="bi bi-diagram-3"></i></div>
+        <div class="empty-title">No swarms yet</div>
+        <div class="empty-desc">Create a swarm to coordinate multiple agents on the same task using parallel, sequential, or voting strategies.</div>
+        <button class="btn btn-primary mt-4" @onclick="OpenCreate">
+            <i class="bi bi-plus-lg"></i> Create your first swarm
+        </button>
+    </div>
+}
+else
+{
+    <div class="swarm-grid">
+        @foreach (var swarm in swarms)
+        {
+            <div class="swarm-card @(!swarm.IsActive ? "swarm-card--inactive" : "")">
+                <div class="swarm-card__header">
+                    <div class="swarm-icon">
+                        <i class="bi @StrategyIcon(swarm.Strategy)"></i>
+                    </div>
+                    <div class="swarm-card__meta">
+                        <div class="swarm-card__name">@swarm.Name</div>
+                        @if (!string.IsNullOrWhiteSpace(swarm.Description))
+                        {
+                            <div class="text-xs text-muted">@swarm.Description</div>
+                        }
+                    </div>
+                    <span class="badge @StrategyBadgeClass(swarm.Strategy) ml-auto">@swarm.Strategy</span>
+                </div>
+
+                <div class="swarm-stats">
+                    <div class="swarm-stat">
+                        <span class="swarm-stat__val">@swarm.Agents.Count</span>
+                        <span class="swarm-stat__lbl">Agents</span>
+                    </div>
+                    <div class="swarm-stat">
+                        <span class="swarm-stat__val">@swarm.Agents.Count(a => a.Status == AgentStatus.Active)</span>
+                        <span class="swarm-stat__lbl">Active</span>
+                    </div>
+                    <div class="swarm-stat">
+                        <span class="swarm-stat__val">@(swarm.ShareMemory ? "On" : "Off")</span>
+                        <span class="swarm-stat__lbl">Shared Mem</span>
+                    </div>
+                    <div class="swarm-stat">
+                        <span class="swarm-stat__val">@swarm.Agents.Count(a => a.Status == AgentStatus.Error)</span>
+                        <span class="swarm-stat__lbl">Errors</span>
+                    </div>
+                </div>
+
+                <!-- Agent mini-list -->
+                @if (swarm.Agents.Any())
+                {
+                    <div class="swarm-agent-pills">
+                        @foreach (var a in swarm.Agents.Take(6))
+                        {
+                            <span class="swarm-agent-pill @StatusClass(a.Status)">
+                                <span class="dot @StatusDot(a.Status) sm"></span>
+                                @a.Name
+                            </span>
+                        }
+                        @if (swarm.Agents.Count > 6)
+                        {
+                            <span class="swarm-agent-pill overflow">+@(swarm.Agents.Count - 6) more</span>
+                        }
+                    </div>
+                }
+
+                <div class="swarm-card__footer">
+                    <span class="text-xs text-muted">
+                        <i class="bi bi-calendar3"></i>
+                        @swarm.CreatedAt.ToString("MMM d, yyyy")
+                    </span>
+                    <div class="ml-auto" style="display:flex;gap:var(--s2);">
+                        <button class="btn btn-ghost btn-sm" @onclick="() => OpenDispatch(swarm)">
+                            <i class="bi bi-send"></i> Dispatch
+                        </button>
+                        <button class="btn btn-ghost btn-sm" @onclick="() => Nav.NavigateTo($\"/agents?swarm={swarm.Id}\")">
+                            <i class="bi bi-robot"></i> Agents
+                        </button>
+                        <button class="btn btn-ghost btn-sm text-error" @onclick="() => ConfirmDelete(swarm.Id)">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+<!-- Create Swarm Modal -->
+@if (showCreateModal)
+{
+    <div class="modal-backdrop" @onclick="CloseModals">
+        <div class="modal modal--lg" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2 class="modal-title">Create Agent Swarm</h2>
+                <button class="modal-close" @onclick="CloseModals"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Swarm Name <span class="text-error">*</span></label>
+                        <input class="form-input" @bind="createForm.Name" placeholder="e.g. Invoice Processing Swarm" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Agent Count <span class="text-error">*</span></label>
+                        <input class="form-input" type="number" @bind="agentCount" min="2" max="20" />
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <input class="form-input" @bind="createForm.Description" placeholder="What does this swarm do?" />
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Strategy</label>
+                    <div class="strategy-picker">
+                        @foreach (var s in Enum.GetValues<SwarmStrategy>())
+                        {
+                            <button class="strategy-btn @(createForm.Strategy == s ? "strategy-btn--active" : "")"
+                                    @onclick="() => createForm.Strategy = s">
+                                <i class="bi @StrategyIcon(s)"></i>
+                                <div class="strategy-btn__name">@s</div>
+                                <div class="strategy-btn__desc text-muted text-xs">@StrategyDesc(s)</div>
+                            </button>
+                        }
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">LLM Provider</label>
+                    <select class="form-input" @bind="createForm.LLMProviderId">
+                        <option value="">— Select provider —</option>
+                        @foreach (var p in providers)
+                        {
+                            <option value="@p.Id">@p.Name (@p.ModelName)</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Agent Name Pattern</label>
+                    <input class="form-input font-mono" @bind="createForm.NamePattern" placeholder="{name} #{n}" />
+                    <div class="form-hint">
+                        <i class="bi bi-info-circle"></i>
+                        Use <code>{name}</code> for swarm name and <code>{n}</code> for agent number.
+                        Preview: <strong>@PreviewName(createForm.Name, createForm.NamePattern, 1)</strong>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">
+                        Base System Prompt
+                        @if (!string.IsNullOrWhiteSpace(createForm.BasePrompt))
+                        {
+                            <span class="text-muted text-xs ml-2">~@EstimateTokens(createForm.BasePrompt) tokens</span>
+                        }
+                    </label>
+                    <textarea class="form-input prompt-editor" rows="8" @bind="createForm.BasePrompt"
+                              placeholder="Shared system prompt for all agents in this swarm..."></textarea>
+                </div>
+
+                <label class="form-check">
+                    <input type="checkbox" @bind="createForm.ShareMemory" />
+                    <span>Share memory across swarm agents</span>
+                </label>
+
+                @if (!string.IsNullOrWhiteSpace(errorMsg))
+                {
+                    <div class="alert alert-error mt-4">@errorMsg</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" @onclick="CloseModals">Cancel</button>
+                <button class="btn btn-primary" @onclick="CreateSwarm" disabled="@isSaving">
+                    @if (isSaving) { <span class="spinner"></span> }
+                    <i class="bi bi-diagram-3"></i> @(isSaving ? "Creating..." : $"Create Swarm ({agentCount} agents)")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Dispatch Modal -->
+@if (dispatchSwarm != null)
+{
+    <div class="modal-backdrop" @onclick="CloseModals">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2 class="modal-title">Dispatch Task to Swarm</h2>
+                <button class="modal-close" @onclick="CloseModals"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="dispatch-target">
+                    <i class="bi @StrategyIcon(dispatchSwarm.Strategy) text-accent"></i>
+                    <div>
+                        <div class="text-sm font-medium">@dispatchSwarm.Name</div>
+                        <div class="text-xs text-muted">@dispatchSwarm.Strategy strategy · @dispatchSwarm.Agents.Count agents</div>
+                    </div>
+                </div>
+                <div class="form-group mt-4">
+                    <label class="form-label">Task Name <span class="text-error">*</span></label>
+                    <input class="form-input" @bind="dispatchTaskName" placeholder="e.g. Process Q1 invoices" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Task Input</label>
+                    <textarea class="form-input" rows="4" @bind="dispatchInput"
+                              placeholder="Input data or instructions for the task..."></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Priority</label>
+                    <select class="form-input" @bind="dispatchPriority">
+                        @foreach (var p in Enum.GetValues<TaskPriority>())
+                        {
+                            <option value="@p">@p</option>
+                        }
+                    </select>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(errorMsg))
+                {
+                    <div class="alert alert-error mt-4">@errorMsg</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" @onclick="CloseModals">Cancel</button>
+                <button class="btn btn-primary" @onclick="DispatchTask" disabled="@isSaving">
+                    @if (isSaving) { <span class="spinner"></span> }
+                    <i class="bi bi-send"></i> @(isSaving ? "Dispatching..." : "Dispatch Task")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Delete Confirm -->
+@if (deletingId != null)
+{
+    <div class="modal-backdrop" @onclick="() => deletingId = null">
+        <div class="modal modal--sm" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2 class="modal-title text-error">Delete Swarm</h2>
+                <button class="modal-close" @onclick="() => deletingId = null"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-secondary">Permanently delete <strong class="text-primary">@swarms.FirstOrDefault(s => s.Id == deletingId)?.Name</strong>?</p>
+                <p class="text-muted text-sm mt-2">All agents and their tasks/memory in this swarm will be deleted.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" @onclick="() => deletingId = null">Cancel</button>
+                <button class="btn btn-danger" @onclick="DeleteSwarm">Delete Permanently</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Swarm> swarms = new();
+    private List<LLMProvider> providers = new();
+    private bool showCreateModal;
+    private bool isSaving;
+    private string? deletingId;
+    private string errorMsg = "";
+    private Swarm? dispatchSwarm;
+
+    // Create form
+    private Swarm createForm = new() { NamePattern = "{name} #{n}", ShareMemory = true };
+    private int agentCount = 3;
+
+    // Dispatch
+    private string dispatchTaskName = "";
+    private string dispatchInput = "";
+    private TaskPriority dispatchPriority = TaskPriority.Medium;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        providers = await ProviderService.GetAllAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        swarms = await SwarmService.GetAllAsync();
+        StateHasChanged();
+    }
+
+    private void OpenCreate()
+    {
+        createForm = new Swarm { NamePattern = "{name} #{n}", ShareMemory = true };
+        agentCount = 3;
+        errorMsg = "";
+        showCreateModal = true;
+    }
+
+    private void OpenDispatch(Swarm s)
+    {
+        dispatchSwarm = s;
+        dispatchTaskName = "";
+        dispatchInput = "";
+        dispatchPriority = TaskPriority.Medium;
+        errorMsg = "";
+    }
+
+    private void ConfirmDelete(string id) => deletingId = id;
+    private void CloseModals() { showCreateModal = false; dispatchSwarm = null; errorMsg = ""; }
+
+    private async Task CreateSwarm()
+    {
+        if (string.IsNullOrWhiteSpace(createForm.Name)) { errorMsg = "Swarm name is required."; return; }
+        if (string.IsNullOrWhiteSpace(createForm.BasePrompt)) { errorMsg = "Base prompt is required."; return; }
+        if (agentCount < 2) { errorMsg = "At least 2 agents required."; return; }
+
+        isSaving = true;
+        errorMsg = "";
+        try
+        {
+            await SwarmService.CreateSwarmAsync(createForm, agentCount);
+            await LoadAsync();
+            CloseModals();
+        }
+        catch (Exception ex) { errorMsg = ex.Message; }
+        finally { isSaving = false; }
+    }
+
+    private async Task DispatchTask()
+    {
+        if (dispatchSwarm == null) return;
+        if (string.IsNullOrWhiteSpace(dispatchTaskName)) { errorMsg = "Task name is required."; return; }
+
+        isSaving = true;
+        errorMsg = "";
+        try
+        {
+            await SwarmService.DispatchTaskToSwarmAsync(dispatchSwarm.Id, dispatchTaskName, dispatchInput, dispatchPriority);
+            CloseModals();
+        }
+        catch (Exception ex) { errorMsg = ex.Message; }
+        finally { isSaving = false; }
+    }
+
+    private async Task DeleteSwarm()
+    {
+        if (deletingId == null) return;
+        await SwarmService.DeleteSwarmAsync(deletingId);
+        deletingId = null;
+        await LoadAsync();
+    }
+
+    private static string PreviewName(string swarmName, string pattern, int n)
+    {
+        if (string.IsNullOrWhiteSpace(pattern)) return "Agent #1";
+        return pattern.Replace("{name}", swarmName ?? "Swarm").Replace("{n}", n.ToString());
+    }
+
+    private static int EstimateTokens(string text) => (int)(text.Length / 3.8);
+
+    private static string StrategyIcon(SwarmStrategy s) => s switch
+    {
+        SwarmStrategy.Parallel              => "bi-arrows-expand",
+        SwarmStrategy.Sequential            => "bi-arrow-right-circle",
+        SwarmStrategy.Voting                => "bi-hand-thumbs-up",
+        SwarmStrategy.Pipeline              => "bi-diagram-2",
+        SwarmStrategy.OrchestratorWorker    => "bi-diagram-3",
+        _ => "bi-diagram-3"
+    };
+
+    private static string StrategyBadgeClass(SwarmStrategy s) => s switch
+    {
+        SwarmStrategy.Parallel           => "badge-accent",
+        SwarmStrategy.Sequential         => "badge-info",
+        SwarmStrategy.Voting             => "badge-success",
+        SwarmStrategy.Pipeline           => "badge-warning",
+        SwarmStrategy.OrchestratorWorker => "badge-accent2",
+        _ => "badge-accent"
+    };
+
+    private static string StrategyDesc(SwarmStrategy s) => s switch
+    {
+        SwarmStrategy.Parallel           => "All agents run simultaneously",
+        SwarmStrategy.Sequential         => "Agents run one after another",
+        SwarmStrategy.Voting             => "Agents vote on best answer",
+        SwarmStrategy.Pipeline           => "Output chains to next agent",
+        SwarmStrategy.OrchestratorWorker => "One agent directs the rest",
+        _ => ""
+    };
+
+    private static string StatusClass(AgentStatus s) => s switch
+    {
+        AgentStatus.Active  => "active",
+        AgentStatus.Idle    => "idle",
+        AgentStatus.Error   => "error",
+        AgentStatus.Offline => "offline",
+        _ => "idle"
+    };
+
+    private static string StatusDot(AgentStatus s) => s switch
+    {
+        AgentStatus.Active  => "active",
+        AgentStatus.Idle    => "idle",
+        AgentStatus.Error   => "error",
+        AgentStatus.Offline => "offline",
+        _ => "idle"
+    };
+}

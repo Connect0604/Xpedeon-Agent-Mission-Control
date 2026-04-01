@@ -1,0 +1,382 @@
+@page "/agents/{AgentId}/edit"
+@rendermode InteractiveServer
+@inject AgentService AgentService
+@inject LLMProviderService ProviderService
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject NavigationManager Nav
+
+<PageTitle>Edit Agent — Xpedeon AMC</PageTitle>
+
+@if (agent == null)
+{
+    <div class="empty-state">
+        <div class="empty-icon"><i class="bi bi-robot"></i></div>
+        <div class="empty-title">Agent not found</div>
+        <a href="/agents" class="btn btn-ghost mt-4"><i class="bi bi-arrow-left"></i> Back</a>
+    </div>
+}
+else
+{
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">Edit Agent</h1>
+            <p class="page-subtitle">@agent.Name</p>
+        </div>
+        <div style="display:flex;gap:var(--s2);">
+            <button class="btn btn-ghost text-error" @onclick="() => showDeleteConfirm = true">
+                <i class="bi bi-trash"></i> Delete
+            </button>
+            <button class="btn btn-ghost" @onclick='() => Nav.NavigateTo($"/agents/{AgentId}")'>
+                <i class="bi bi-arrow-left"></i> Cancel
+            </button>
+        </div>
+    </div>
+
+    <div class="edit-agent-layout">
+
+        <!-- Basics -->
+        <div class="card card-pad">
+            <h3 class="section-title mb-4">Basics</h3>
+            <div class="form-group">
+                <label class="form-label">Agent Name <span class="text-error">*</span></label>
+                <input class="form-input" @bind="agent.Name" />
+            </div>
+            <div class="form-group">
+                <label class="form-label">Agent Type</label>
+                <div class="type-picker">
+                    @foreach (var t in Enum.GetValues<AgentType>())
+                    {
+                        <button class="type-btn @(agent.Type == t ? "type-btn--active" : "")"
+                                @onclick="() => agent.Type = t">
+                            <i class="bi @TypeIcon(t)"></i> @t
+                        </button>
+                    }
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Description</label>
+                <textarea class="form-input" rows="2" @bind="agent.Description"></textarea>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Host Machine</label>
+                    <input class="form-input font-mono" @bind="agent.HostMachine" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Version</label>
+                    <input class="form-input font-mono" @bind="agent.Version" />
+                </div>
+            </div>
+        </div>
+
+        <!-- LLM & System Prompt -->
+        <div class="card card-pad">
+            <h3 class="section-title mb-4">LLM Provider & System Prompt</h3>
+            <div class="form-group">
+                <label class="form-label">LLM Provider</label>
+                <div class="provider-picker">
+                    @foreach (var p in providers)
+                    {
+                        <div class="provider-picker-item @(agent.LLMProviderId == p.Id ? "selected" : "")"
+                             @onclick="() => agent.LLMProviderId = p.Id">
+                            <i class="bi @ProviderIcon(p.Type)"></i>
+                            <div>
+                                <div class="text-sm font-medium">@p.Name</div>
+                                <div class="text-xs font-mono text-muted">@p.ModelName</div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">
+                    System Prompt
+                    @if (!string.IsNullOrWhiteSpace(agent.SystemPrompt))
+                    {
+                        <span class="text-muted text-xs ml-2">~@EstimateTokens(agent.SystemPrompt) tokens</span>
+                    }
+                </label>
+                <textarea class="form-input prompt-editor" rows="12" @bind="agent.SystemPrompt"></textarea>
+                <div class="form-hint">
+                    <i class="bi bi-info-circle"></i>
+                    Saving a new prompt creates a version history entry automatically.
+                </div>
+            </div>
+        </div>
+
+        <!-- Memory -->
+        <div class="card card-pad">
+            <h3 class="section-title mb-4">Memory</h3>
+            <div class="toggle-group">
+                <div class="toggle-item">
+                    <div>
+                        <div class="toggle-label">Short-term Memory</div>
+                        <div class="toggle-desc text-muted text-sm">Context within a single run</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" @bind="agent.ShortTermMemoryEnabled" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="toggle-item">
+                    <div>
+                        <div class="toggle-label">Long-term Memory</div>
+                        <div class="toggle-desc text-muted text-sm">Persists across runs</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" @bind="agent.LongTermMemoryEnabled" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="toggle-item">
+                    <div>
+                        <div class="toggle-label">Share Swarm Memory</div>
+                        <div class="toggle-desc text-muted text-sm">Pool with swarm agents</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" @bind="agent.ShareMemoryWithSwarm" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Advanced -->
+        <div class="card card-pad">
+            <h3 class="section-title mb-4">Advanced</h3>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Memory Limit (MB)</label>
+                    <input class="form-input" type="number" @bind="agent.MemoryLimitMB" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Timeout (seconds)</label>
+                    <input class="form-input" type="number" @bind="agent.TimeoutSeconds" />
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Max Retries</label>
+                    <input class="form-input" type="number" @bind="agent.MaxRetries" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Daily Token Budget</label>
+                    <input class="form-input" type="number" @bind="agent.TokenBudgetPerDay" placeholder="Unlimited" />
+                </div>
+            </div>
+            <div class="toggle-group mt-4">
+                <div class="toggle-item">
+                    <div>
+                        <div class="toggle-label">Circuit Breaker</div>
+                        <div class="toggle-desc text-muted text-sm">Auto-pause after failures</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" @bind="agent.CircuitBreakerEnabled" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="toggle-item">
+                    <div>
+                        <div class="toggle-label">Require Human Approval</div>
+                        <div class="toggle-desc text-muted text-sm">Tasks need manual approval</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" @bind="agent.RequiresApproval" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            @if (agent.CircuitBreakerEnabled)
+            {
+                <div class="form-group mt-4">
+                    <label class="form-label">Failure Threshold</label>
+                    <input class="form-input" type="number" @bind="agent.CircuitBreakerFailureThreshold" min="2" max="20" />
+                </div>
+            }
+
+            <!-- Schedule -->
+            <div class="mt-4">
+                <h4 class="section-title mb-3">Schedule (Cron)</h4>
+                <label class="form-check mb-3">
+                    <input type="checkbox" @bind="scheduleEnabled" />
+                    <span>Enable scheduled runs</span>
+                </label>
+                @if (scheduleEnabled)
+                {
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Cron Expression</label>
+                            <input class="form-input font-mono" @bind="cronExpression" placeholder="0 9 * * *" />
+                            <div class="form-hint">
+                                <i class="bi bi-info-circle"></i>
+                                @CronHint(cronExpression)
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Priority</label>
+                            <select class="form-input" @bind="schedulePriority">
+                                @foreach (var p in Enum.GetValues<TaskPriority>())
+                                {
+                                    <option value="@p">@p</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Default Input</label>
+                        <textarea class="form-input" rows="3" @bind="scheduleInput"
+                                  placeholder="Default task input sent on each scheduled run..."></textarea>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(errorMsg))
+        {
+            <div class="alert alert-error">@errorMsg</div>
+        }
+
+        <div class="form-actions">
+            <button class="btn btn-ghost" @onclick='() => Nav.NavigateTo($"/agents/{AgentId}")'>Cancel</button>
+            <button class="btn btn-primary ml-auto" @onclick="SaveAgent" disabled="@isSaving">
+                @if (isSaving) { <span class="spinner"></span> }
+                <i class="bi bi-check-lg"></i> @(isSaving ? "Saving..." : "Save Changes")
+            </button>
+        </div>
+    </div>
+}
+
+<!-- Delete Confirm -->
+@if (showDeleteConfirm)
+{
+    <div class="modal-backdrop" @onclick="() => showDeleteConfirm = false">
+        <div class="modal modal--sm" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2 class="modal-title text-error">Delete Agent</h2>
+                <button class="modal-close" @onclick="() => showDeleteConfirm = false"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-secondary">Permanently delete <strong class="text-primary">@agent?.Name</strong>?</p>
+                <p class="text-muted text-sm mt-2">All tasks, memory, and logs for this agent will be deleted.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" @onclick="() => showDeleteConfirm = false">Cancel</button>
+                <button class="btn btn-danger" @onclick="DeleteAgent">Delete Permanently</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string AgentId { get; set; } = "";
+
+    private Agent? agent;
+    private List<LLMProvider> providers = new();
+    private bool isSaving;
+    private bool showDeleteConfirm;
+    private string errorMsg = "";
+
+    // Schedule fields
+    private bool scheduleEnabled;
+    private string cronExpression = "0 9 * * *";
+    private string scheduleInput = "";
+    private TaskPriority schedulePriority = TaskPriority.Medium;
+
+    protected override async Task OnInitializedAsync()
+    {
+        agent = await AgentService.GetByIdAsync(AgentId);
+        providers = await ProviderService.GetAllAsync();
+
+        if (agent?.Schedule != null)
+        {
+            scheduleEnabled = agent.Schedule.IsEnabled;
+            cronExpression = agent.Schedule.CronExpression;
+            scheduleInput = agent.Schedule.DefaultInput ?? "";
+            schedulePriority = agent.Schedule.Priority;
+        }
+    }
+
+    private async Task SaveAgent()
+    {
+        if (agent == null) return;
+        if (string.IsNullOrWhiteSpace(agent.Name)) { errorMsg = "Name is required."; return; }
+
+        isSaving = true;
+        errorMsg = "";
+        try
+        {
+            await AgentService.UpdateAsync(agent);
+
+            // Save schedule
+            await using var db = DbFactory.CreateDbContext();
+            var existing = await db.AgentSchedules.FirstOrDefaultAsync(s => s.AgentId == AgentId);
+            if (scheduleEnabled)
+            {
+                if (existing == null)
+                {
+                    db.AgentSchedules.Add(new AgentSchedule
+                    {
+                        AgentId = AgentId, CronExpression = cronExpression,
+                        DefaultInput = scheduleInput, Priority = schedulePriority,
+                        IsEnabled = true, CreatedAt = DateTime.UtcNow
+                    });
+                }
+                else
+                {
+                    existing.CronExpression = cronExpression;
+                    existing.DefaultInput = scheduleInput;
+                    existing.Priority = schedulePriority;
+                    existing.IsEnabled = true;
+                }
+            }
+            else if (existing != null)
+            {
+                existing.IsEnabled = false;
+            }
+            await db.SaveChangesAsync();
+
+            Nav.NavigateTo($"/agents/{AgentId}");
+        }
+        catch (Exception ex) { errorMsg = ex.Message; }
+        finally { isSaving = false; }
+    }
+
+    private async Task DeleteAgent()
+    {
+        await AgentService.DeleteAsync(AgentId);
+        Nav.NavigateTo("/agents");
+    }
+
+    private static string CronHint(string cron) => cron.Trim() switch
+    {
+        "0 9 * * *"   => "Every day at 9:00 AM",
+        "0 * * * *"   => "Every hour",
+        "*/15 * * * *" => "Every 15 minutes",
+        "0 9 * * 1"   => "Every Monday at 9:00 AM",
+        "0 0 * * *"   => "Every day at midnight",
+        _ => "Custom cron schedule"
+    };
+
+    private static int EstimateTokens(string text) => (int)(text.Length / 3.8);
+
+    private static string TypeIcon(AgentType t) => t switch
+    {
+        AgentType.DataSync     => "bi-arrow-left-right",
+        AgentType.Reporting    => "bi-file-earmark-bar-graph",
+        AgentType.Integration  => "bi-plug",
+        AgentType.Notification => "bi-bell",
+        AgentType.Processing   => "bi-cpu",
+        AgentType.Custom       => "bi-braces",
+        _ => "bi-robot"
+    };
+
+    private static string ProviderIcon(LLMProviderType t) => t switch
+    {
+        LLMProviderType.Claude => "bi-stars",
+        LLMProviderType.OpenAI => "bi-lightning-charge",
+        LLMProviderType.Ollama => "bi-house-gear",
+        LLMProviderType.Custom => "bi-braces",
+        _ => "bi-cpu"
+    };
+}

@@ -48,6 +48,9 @@ else
                         disabled="@(agent.Status == AgentStatus.Offline || agent.IsCircuitOpen)">
                     <i class="bi bi-play-fill"></i> Run Task
                 </button>
+                <button class="btn btn-ghost btn-sm" @onclick='() => Nav.NavigateTo($"/agents/{AgentId}/learning")'>
+                    <i class="bi bi-stars"></i>
+                </button>
                 <button class="btn btn-ghost btn-sm" @onclick='() => Nav.NavigateTo($"/agents/{AgentId}/edit")'>
                     <i class="bi bi-pencil"></i>
                 </button>
