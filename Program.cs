@@ -35,11 +35,12 @@ builder.Services.AddHttpClient();
 
 var app = builder.Build();
 
-// Ensure DB created on startup
+// Ensure DB is up-to-date on startup (dev: drop+recreate to apply schema changes)
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
     using var ctx = db.CreateDbContext();
+    ctx.Database.EnsureDeleted();
     ctx.Database.EnsureCreated();
 }
 
