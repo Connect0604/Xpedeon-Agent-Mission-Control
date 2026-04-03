@@ -468,18 +468,7 @@
 @code {
     [SupplyParameterFromQuery] private string? templateId { get; set; }
 
-    private Agent agent = new()
-    {
-        Type = AgentType.Custom,
-        Version = "1.0.0",
-        MemoryLimitMB = 512,
-        TimeoutSeconds = 120,
-        MaxRetries = 3,
-        CircuitBreakerEnabled = true,
-        CircuitBreakerFailureThreshold = 5,
-        ShortTermMemoryEnabled = true,
-        ConfidenceThreshold = 0.8
-    };
+    private Agent agent = CreateDefaultAgent();
 
     private List<LLMProvider> providers = new();
     private List<AgentTemplate> templates = new();
@@ -521,10 +510,19 @@
     private void ApplyTemplate(AgentTemplate? t)
     {
         selectedTemplateId = t?.Id;
-        if (t == null) return;
+        if (t == null)
+        {
+            var currentProviderId = agent.LLMProviderId;
+            agent = CreateDefaultAgent();
+            agent.LLMProviderId = currentProviderId;
+            selectedTools.Clear();
+            return;
+        }
+
         agent.Type = t.DefaultType;
         agent.Description = t.Description;
         agent.SystemPrompt = t.SystemPrompt;
+        agent.TemplateId = t.Id;
         if (string.IsNullOrWhiteSpace(agent.Name)) agent.Name = t.Name;
     }
 
@@ -557,12 +555,17 @@
         if (string.IsNullOrWhiteSpace(agent.SystemPrompt)) { errorMsg = "System prompt is required."; currentStep = 2; return; }
         if (string.IsNullOrWhiteSpace(agent.LLMProviderId)) { errorMsg = "Please select an LLM provider."; currentStep = 2; return; }
 
-        agent.TokenBudgetPerDay = tokenBudget > 0 ? tokenBudget : null;
-        if (string.IsNullOrWhiteSpace(agent.HostMachine))
-            agent.HostMachine = $"worker-{DateTime.UtcNow.Ticks % 99:D2}.xpedeon.local";
+        var agentToCreate = selectedTemplateId != null
+            ? await TemplateService.CreateAgentFromTemplateAsync(selectedTemplateId, agent.Name, agent.LLMProviderId)
+            : CreateDefaultAgent();
+
+        CopyAgentConfiguration(agent, agentToCreate);
+        agentToCreate.TokenBudgetPerDay = tokenBudget > 0 ? tokenBudget : null;
+        if (string.IsNullOrWhiteSpace(agentToCreate.HostMachine))
+            agentToCreate.HostMachine = $"worker-{DateTime.UtcNow.Ticks % 99:D2}.xpedeon.local";
 
         // Add selected tools
-        agent.Tools = selectedTools.Select(name => new AgentTool
+        agentToCreate.Tools = selectedTools.Select(name => new AgentTool
         {
             Name = name,
             Type = ToolType.Custom,
@@ -573,7 +576,7 @@
         isSaving = true;
         try
         {
-            var created = await AgentService.CreateAsync(agent);
+            var created = await AgentService.CreateAsync(agentToCreate);
             Nav.NavigateTo($"/agents/{created.Id}");
         }
         catch (Exception ex)
@@ -616,4 +619,51 @@
         LLMProviderType.Custom => "bi-braces",
         _ => "bi-cpu"
     };
+
+    private static Agent CreateDefaultAgent() => new()
+    {
+        Type = AgentType.Custom,
+        Version = "1.0.0",
+        MemoryLimitMB = 512,
+        TimeoutSeconds = 120,
+        MaxRetries = 3,
+        CircuitBreakerEnabled = true,
+        CircuitBreakerFailureThreshold = 5,
+        ShortTermMemoryEnabled = true,
+        ConfidenceThreshold = 0.8
+    };
+
+    private static void CopyAgentConfiguration(Agent source, Agent target)
+    {
+        target.Name = source.Name;
+        target.Type = source.Type;
+        target.Description = source.Description;
+        target.LLMProviderId = source.LLMProviderId;
+        target.SystemPrompt = source.SystemPrompt;
+        target.CurrentTask = source.CurrentTask;
+        target.Version = source.Version;
+        target.HostMachine = source.HostMachine;
+        target.MemoryLimitMB = source.MemoryLimitMB;
+        target.ShortTermMemoryEnabled = source.ShortTermMemoryEnabled;
+        target.LongTermMemoryEnabled = source.LongTermMemoryEnabled;
+        target.ShareMemoryWithSwarm = source.ShareMemoryWithSwarm;
+        target.TokenBudgetPerDay = source.TokenBudgetPerDay;
+        target.MaxRetries = source.MaxRetries;
+        target.TimeoutSeconds = source.TimeoutSeconds;
+        target.CircuitBreakerEnabled = source.CircuitBreakerEnabled;
+        target.CircuitBreakerFailureThreshold = source.CircuitBreakerFailureThreshold;
+        target.IsCircuitOpen = source.IsCircuitOpen;
+        target.RequiresApproval = source.RequiresApproval;
+        target.ConfidenceThreshold = source.ConfidenceThreshold;
+        target.SpawnEnabled = source.SpawnEnabled;
+        target.SpawnMode = source.SpawnMode;
+        target.SpawnTriggerType = source.SpawnTriggerType;
+        target.SpawnTrigger = source.SpawnTrigger;
+        target.MaxSpawns = source.MaxSpawns;
+        target.MaxDepth = source.MaxDepth;
+        target.ChildPromptTemplate = source.ChildPromptTemplate;
+        target.SpawnLifecycle = source.SpawnLifecycle;
+        target.SpawnAggregation = source.SpawnAggregation;
+        target.TemplateId = source.TemplateId;
+    }
 }

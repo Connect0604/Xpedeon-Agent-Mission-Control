@@ -1,7 +1,9 @@
 @page "/mcp"
 @rendermode InteractiveServer
 @using Microsoft.EntityFrameworkCore
+@using System.Text.Json
 @inject IDbContextFactory<AppDbContext> DbFactory
+@inject MCPService MCPService
 @inject NavigationManager Nav
 
 <PageTitle>MCP Servers — Xpedeon AMC</PageTitle>
@@ -107,9 +109,87 @@ else
                         <span>Enabled</span>
                     </label>
                 </div>
+                <div class="form-actions mt-3">
+                    <button class="btn btn-ghost" type="button" @onclick="TestConnection" disabled="@isTesting">
+                        @(isTesting ? "Testing..." : "Test Connection")
+                    </button>
+                    <button class="btn btn-ghost" type="button" @onclick="ListTools" disabled="@isListingTools">
+                        @(isListingTools ? "Loading Tools..." : "List Tools")
+                    </button>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(testSuccessMsg))
+                {
+                    <div class="alert alert-success mt-3">@testSuccessMsg</div>
+                }
                 @if (!string.IsNullOrWhiteSpace(errorMsg))
                 {
-                    <div class="alert alert-error">@errorMsg</div>
+                    <div class="alert alert-error mt-3">@errorMsg</div>
+                }
+                @if (discoveredTools.Any())
+                {
+                    <div class="mt-4">
+                        <div class="section-title mb-2">Discovered Tools</div>
+                        <div class="mcp-assign-list">
+                            @foreach (var tool in discoveredTools)
+                            {
+                                <div class="mcp-assign-row">
+                                    <div class="mcp-assign-info">
+                                        <span class="text-sm font-medium">@tool.Name</span>
+                                        @if (!string.IsNullOrWhiteSpace(tool.Description))
+                                        {
+                                            <div class="text-xs text-muted">@tool.Description</div>
+                                        }
+                                        @if (!string.IsNullOrWhiteSpace(tool.InputSchemaJson))
+                                        {
+                                            <div class="text-xs font-mono text-muted">@tool.InputSchemaJson</div>
+                                        }
+                                    </div>
+                                    <button class="btn btn-ghost btn-sm ml-auto" type="button" @onclick="() => SelectTool(tool)">
+                                        <i class="bi bi-play-circle"></i> Run
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                @if (selectedTool != null)
+                {
+                    <div class="mt-4">
+                        <div class="section-title mb-2">Run Tool</div>
+                        <div class="card card-pad">
+                            <div class="text-sm font-medium">@selectedTool.Name</div>
+                            <div class="text-xs text-muted mb-3">@selectedTool.ServerName</div>
+                            <div class="form-group">
+                                <label class="form-label">Arguments JSON</label>
+                                <textarea class="form-input font-mono" rows="6" @bind="toolArgumentsJson"
+                                          placeholder='{"table_name":"pc_process_setps_default"}'></textarea>
+                            </div>
+                            <div class="form-actions">
+                                <button class="btn btn-ghost" type="button" @onclick="ClearToolRunner">Clear</button>
+                                <button class="btn btn-primary ml-auto" type="button" @onclick="RunSelectedTool" disabled="@isRunningTool">
+                                    @(isRunningTool ? "Running..." : "Run Tool")
+                                </button>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(toolRunError))
+                            {
+                                <div class="alert alert-error mt-3">@toolRunError</div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(toolRunTrace))
+                            {
+                                <div class="mt-3">
+                                    <div class="text-xs text-muted mb-1">Execution Trace</div>
+                                    <div class="output-box font-mono text-xs">@toolRunTrace</div>
+                                </div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(toolRunOutput))
+                            {
+                                <div class="mt-3">
+                                    <div class="text-xs text-muted mb-1">Result</div>
+                                    <div class="output-box font-mono text-xs">@toolRunOutput</div>
+                                </div>
+                            }
+                        </div>
+                    </div>
                 }
             </div>
             <div class="modal-footer">
@@ -147,9 +227,19 @@ else
     private List<MCPServer> servers = new();
     private bool showModal;
     private bool isSaving;
+    private bool isTesting;
+    private bool isListingTools;
+    private bool isRunningTool;
     private string? editingId;
     private string? deletingId;
     private string errorMsg = "";
+    private string testSuccessMsg = "";
+    private List<MCPToolInfo> discoveredTools = new();
+    private MCPToolInfo? selectedTool;
+    private string toolArgumentsJson = "{}";
+    private string toolRunOutput = "";
+    private string toolRunTrace = "";
+    private string toolRunError = "";
     private MCPServer form = new() { IsEnabled = true };
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
@@ -165,7 +255,7 @@ else
     {
         editingId = null;
         form = new MCPServer { IsEnabled = true };
-        errorMsg = "";
+        ResetProbeState();
         showModal = true;
     }
 
@@ -178,11 +268,11 @@ else
             Endpoint = s.Endpoint, TransportType = s.TransportType,
             AuthToken = s.AuthToken, IsGlobal = s.IsGlobal, IsEnabled = s.IsEnabled
         };
-        errorMsg = "";
+        ResetProbeState();
         showModal = true;
     }
 
-    private void CloseModal() { showModal = false; errorMsg = ""; }
+    private void CloseModal() { showModal = false; ResetProbeState(); }
     private void ConfirmDelete(string id) => deletingId = id;
 
     private async Task Save()
@@ -212,6 +302,148 @@ else
         finally { isSaving = false; }
     }
 
+    private async Task TestConnection()
+    {
+        errorMsg = "";
+        testSuccessMsg = "";
+        discoveredTools.Clear();
+
+        if (string.IsNullOrWhiteSpace(form.Name)) { errorMsg = "Name is required."; return; }
+        if (string.IsNullOrWhiteSpace(form.Endpoint)) { errorMsg = "Endpoint is required."; return; }
+
+        isTesting = true;
+        try
+        {
+            var result = await MCPService.TestConnectionAsync(form);
+            if (result.Success)
+            {
+                var serverLabel = string.IsNullOrWhiteSpace(result.ServerName)
+                    ? "MCP server responded successfully."
+                    : $"Connected to {result.ServerName}{(string.IsNullOrWhiteSpace(result.ServerVersion) ? "" : $" {result.ServerVersion}")}.";
+
+                testSuccessMsg = $"{serverLabel} Tools available: {result.ToolCount}.";
+            }
+            else
+            {
+                errorMsg = result.Message;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMsg = ex.Message;
+        }
+        finally
+        {
+            isTesting = false;
+        }
+    }
+
+    private async Task ListTools()
+    {
+        errorMsg = "";
+        testSuccessMsg = "";
+        discoveredTools.Clear();
+        ClearToolRunner();
+
+        if (string.IsNullOrWhiteSpace(form.Name)) { errorMsg = "Name is required."; return; }
+        if (string.IsNullOrWhiteSpace(form.Endpoint)) { errorMsg = "Endpoint is required."; return; }
+
+        isListingTools = true;
+        try
+        {
+            var result = await MCPService.ListToolsAsync(form);
+            if (result.Success)
+            {
+                discoveredTools = result.Tools;
+                testSuccessMsg = result.Message;
+            }
+            else
+            {
+                errorMsg = result.Message;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMsg = ex.Message;
+        }
+        finally
+        {
+            isListingTools = false;
+        }
+    }
+
+    private void SelectTool(MCPToolInfo tool)
+    {
+        selectedTool = tool;
+        toolArgumentsJson = "{}";
+        toolRunOutput = "";
+        toolRunTrace = "";
+        toolRunError = "";
+    }
+
+    private void ClearToolRunner()
+    {
+        selectedTool = null;
+        toolArgumentsJson = "{}";
+        toolRunOutput = "";
+        toolRunTrace = "";
+        toolRunError = "";
+    }
+
+    private async Task RunSelectedTool()
+    {
+        toolRunError = "";
+        toolRunOutput = "";
+        toolRunTrace = "";
+
+        if (selectedTool == null)
+        {
+            toolRunError = "Select a tool first.";
+            return;
+        }
+
+        Dictionary<string, object?> arguments;
+        try
+        {
+            arguments = ParseArguments(toolArgumentsJson);
+        }
+        catch (Exception ex)
+        {
+            toolRunError = $"Invalid arguments JSON: {ex.Message}";
+            return;
+        }
+
+        var server = new List<MCPServer> { form }.FirstOrDefault(s => s.Id == selectedTool.ServerId || string.IsNullOrWhiteSpace(selectedTool.ServerId));
+        if (server == null)
+        {
+            toolRunError = "The selected tool is no longer associated with the current MCP server.";
+            return;
+        }
+
+        isRunningTool = true;
+        try
+        {
+            var result = await MCPService.InvokeToolAsync(server, selectedTool.Name, arguments);
+            toolRunTrace = result.Trace;
+            if (result.Success)
+            {
+                toolRunOutput = result.ResultText;
+            }
+            else
+            {
+                toolRunError = result.ResultText;
+            }
+        }
+        catch (Exception ex)
+        {
+            toolRunError = ex.Message;
+        }
+        finally
+        {
+            isRunningTool = false;
+        }
+    }
+
     private async Task Delete()
     {
         if (deletingId == null) return;
@@ -227,6 +459,43 @@ else
         MCPTransportType.SSE       => "https://your-mcp-server.com/sse",
         MCPTransportType.Stdio     => "npx -y @modelcontextprotocol/server-filesystem /path",
         MCPTransportType.WebSocket => "ws://localhost:8080/mcp",
+        MCPTransportType.Http      => "https://your-mcp-server.com/mcp",
         _ => "endpoint url or command"
+    };
+
+    private void ResetProbeState()
+    {
+        errorMsg = "";
+        testSuccessMsg = "";
+        discoveredTools.Clear();
+        ClearToolRunner();
+    }
+
+    private static Dictionary<string, object?> ParseArguments(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return new Dictionary<string, object?>();
+
+        using var document = JsonDocument.Parse(json);
+        if (document.RootElement.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("Arguments JSON must be an object.");
+
+        var result = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var property in document.RootElement.EnumerateObject())
+        {
+            result[property.Name] = ConvertJsonValue(property.Value);
+        }
+
+        return result;
+    }
+
+    private static object? ConvertJsonValue(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.String => value.GetString(),
+        JsonValueKind.Number => value.TryGetInt64(out var l) ? l : value.GetDouble(),
+        JsonValueKind.True => true,
+        JsonValueKind.False => false,
+        JsonValueKind.Null => null,
+        _ => JsonSerializer.Deserialize<object>(value.GetRawText())
     };
 }

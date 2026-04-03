@@ -1,12 +1,20 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Microsoft.EntityFrameworkCore.Metadata;
+using System.Text.RegularExpressions;
+using XpedeonAgentMissionControl.Configuration;
 using XpedeonAgentMissionControl.Models;
 
 namespace XpedeonAgentMissionControl.Data;
 
 public class AppDbContext : DbContext
 {
-    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+    private readonly DatabaseConfig _databaseConfig;
+
+    public AppDbContext(DbContextOptions<AppDbContext> options, DatabaseConfig databaseConfig) : base(options)
+    {
+        _databaseConfig = databaseConfig;
+    }
 
     public DbSet<Agent> Agents => Set<Agent>();
     public DbSet<AgentTask> Tasks => Set<AgentTask>();
@@ -25,6 +33,12 @@ public class AppDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        if (Database.ProviderName?.Contains("SqlServer", StringComparison.OrdinalIgnoreCase) == true &&
+            !string.IsNullOrWhiteSpace(_databaseConfig.Schema))
+        {
+            modelBuilder.HasDefaultSchema(_databaseConfig.Schema);
+        }
 
         // Agent
         modelBuilder.Entity<Agent>(e =>
@@ -137,6 +151,11 @@ public class AppDbContext : DbContext
             e.HasIndex(s => s.AgentId).IsUnique();
         });
 
+        if (Database.ProviderName?.Contains("SqlServer", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            ApplySqlServerObjectMappings(modelBuilder);
+        }
+
         // Seed Xpedeon built-in templates
         modelBuilder.Entity<AgentTemplate>().HasData(
             new AgentTemplate
@@ -244,5 +263,44 @@ public class AppDbContext : DbContext
     {
         double.TryParse(x, out var d);
         return d;
+    }
+
+    private static void ApplySqlServerObjectMappings(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<Agent>().ToTable("AGENTS");
+        modelBuilder.Entity<AgentTask>().ToTable("AGENT_TASKS");
+        modelBuilder.Entity<LogEntry>().ToTable("LOG_ENTRIES");
+        modelBuilder.Entity<LLMProvider>().ToTable("LLM_PROVIDERS");
+        modelBuilder.Entity<Swarm>().ToTable("SWARMS");
+        modelBuilder.Entity<AgentTool>().ToTable("AGENT_TOOLS");
+        modelBuilder.Entity<MCPServer>().ToTable("MCP_SERVERS");
+        modelBuilder.Entity<AgentMCPServer>().ToTable("AGENT_MCP_SERVERS");
+        modelBuilder.Entity<AgentMemory>().ToTable("AGENT_MEMORIES");
+        modelBuilder.Entity<TaskFeedback>().ToTable("TASK_FEEDBACKS");
+        modelBuilder.Entity<PromptHistory>().ToTable("PROMPT_HISTORIES");
+        modelBuilder.Entity<AgentTemplate>().ToTable("AGENT_TEMPLATES");
+        modelBuilder.Entity<AgentSchedule>().ToTable("AGENT_SCHEDULES");
+
+        foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+        {
+            foreach (var property in entityType.GetProperties())
+            {
+                property.SetColumnName(ToUpperSnakeCase(property.Name));
+            }
+        }
+
+        modelBuilder.Entity<AgentMemory>().Property(m => m.Key).HasColumnName("MEMORY_KEY");
+    }
+
+    private static string ToUpperSnakeCase(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        var withWordBreaks = Regex.Replace(value, "([a-z0-9])([A-Z])", "$1_$2");
+        withWordBreaks = Regex.Replace(withWordBreaks, "([A-Z]+)([A-Z][a-z])", "$1_$2");
+        return withWordBreaks.ToUpperInvariant();
     }
 }

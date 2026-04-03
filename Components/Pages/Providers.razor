@@ -3,7 +3,7 @@
 @inject LLMProviderService ProviderService
 @inject NavigationManager Nav
 
-<PageTitle>LLM Providers — Xpedeon AMC</PageTitle>
+<PageTitle>LLM Providers - Xpedeon AMC</PageTitle>
 
 <div class="page-header">
     <div>
@@ -82,7 +82,6 @@ else
     </div>
 }
 
-<!-- Create / Edit Modal -->
 @if (showModal)
 {
     <div class="modal-backdrop" @onclick="CloseModal">
@@ -110,31 +109,38 @@ else
 
                 <div class="form-group">
                     <label class="form-label">Model Name <span class="text-error">*</span></label>
-                    <input class="form-input font-mono" @bind="form.ModelName"
-                           placeholder="@ModelPlaceholder(form.Type)" />
+                    <input class="form-input font-mono" @bind="form.ModelName" placeholder="@ModelPlaceholder(form.Type)" />
                     <span class="form-hint">@ModelHint(form.Type)</span>
                 </div>
 
-                @if (form.Type != LLMProviderType.Ollama)
+                @if (form.Type == LLMProviderType.Custom)
                 {
                     <div class="form-group">
-                        <label class="form-label">
-                            @(form.Type == LLMProviderType.Custom ? "Auth Token" : "API Key")
-                            <span class="text-error">*</span>
-                        </label>
-                        <input class="form-input font-mono" type="password"
-                               @bind="form.ApiKey" placeholder="sk-..." />
+                        <label class="form-label">Auth Token <span class="text-error">*</span></label>
+                        <input class="form-input font-mono" type="password" @bind="form.AuthToken" placeholder="Bearer token" />
+                    </div>
+                }
+                else if (form.Type != LLMProviderType.Ollama)
+                {
+                    <div class="form-group">
+                        <label class="form-label">API Key <span class="text-error">*</span></label>
+                        <input class="form-input font-mono" type="password" @bind="form.ApiKey" placeholder="sk-..." />
                     </div>
                 }
 
                 <div class="form-group">
                     <label class="form-label">
                         Endpoint URL
-                        @if (form.Type == LLMProviderType.Ollama) { <span class="text-error">*</span> }
-                        else { <span class="text-muted text-xs">(optional — overrides default)</span> }
+                        @if (form.Type == LLMProviderType.Ollama || form.Type == LLMProviderType.Custom)
+                        {
+                            <span class="text-error">*</span>
+                        }
+                        else
+                        {
+                            <span class="text-muted text-xs">(optional - overrides default)</span>
+                        }
                     </label>
-                    <input class="form-input font-mono" @bind="form.Endpoint"
-                           placeholder="@EndpointPlaceholder(form.Type)" />
+                    <input class="form-input font-mono" @bind="form.Endpoint" placeholder="@EndpointPlaceholder(form.Type)" />
                 </div>
 
                 <div class="form-row">
@@ -159,6 +165,11 @@ else
                     </label>
                 </div>
 
+                @if (!string.IsNullOrWhiteSpace(statusMsg))
+                {
+                    <div class="alert @(statusIsSuccess ? "alert-success" : "alert-error")">@statusMsg</div>
+                }
+
                 @if (!string.IsNullOrWhiteSpace(errorMsg))
                 {
                     <div class="alert alert-error">@errorMsg</div>
@@ -167,12 +178,9 @@ else
 
             <div class="modal-footer">
                 <button class="btn btn-ghost" @onclick="CloseModal">Cancel</button>
-                @if (form.Type == LLMProviderType.Ollama)
-                {
-                    <button class="btn btn-ghost" @onclick="TestConnection" disabled="@isTesting">
-                        @(isTesting ? "Testing..." : "Test Connection")
-                    </button>
-                }
+                <button class="btn btn-ghost" @onclick="TestConnection" disabled="@isTesting">
+                    @(isTesting ? "Testing..." : "Test Connection")
+                </button>
                 <button class="btn btn-primary" @onclick="SaveProvider" disabled="@isSaving">
                     @(isSaving ? "Saving..." : (editingId == null ? "Add Provider" : "Save Changes"))
                 </button>
@@ -181,7 +189,6 @@ else
     </div>
 }
 
-<!-- Delete Confirm Modal -->
 @if (deletingProvider != null)
 {
     <div class="modal-backdrop" @onclick="() => deletingProvider = null">
@@ -209,6 +216,8 @@ else
     private bool isTesting;
     private string? editingId;
     private string errorMsg = "";
+    private string statusMsg = "";
+    private bool statusIsSuccess;
     private LLMProvider? deletingProvider;
 
     private LLMProvider form = new() { IsEnabled = true, MaxTokens = 4096, Temperature = 0.7 };
@@ -225,7 +234,7 @@ else
     {
         editingId = null;
         form = new LLMProvider { IsEnabled = true, MaxTokens = 4096, Temperature = 0.7 };
-        errorMsg = "";
+        ClearMessages();
         showModal = true;
     }
 
@@ -234,49 +243,82 @@ else
         editingId = p.Id;
         form = new LLMProvider
         {
-            Id = p.Id, Name = p.Name, Type = p.Type, ModelName = p.ModelName,
-            Endpoint = p.Endpoint, ApiKey = p.ApiKey, AuthToken = p.AuthToken,
-            MaxTokens = p.MaxTokens, Temperature = p.Temperature,
-            IsDefault = p.IsDefault, IsEnabled = p.IsEnabled
+            Id = p.Id,
+            Name = p.Name,
+            Type = p.Type,
+            ModelName = p.ModelName,
+            Endpoint = p.Endpoint,
+            ApiKey = p.ApiKey,
+            AuthToken = p.AuthToken,
+            MaxTokens = p.MaxTokens,
+            Temperature = p.Temperature,
+            IsDefault = p.IsDefault,
+            IsEnabled = p.IsEnabled
         };
-        errorMsg = "";
+        ClearMessages();
         showModal = true;
     }
 
-    private void CloseModal() { showModal = false; errorMsg = ""; }
+    private void CloseModal()
+    {
+        showModal = false;
+        ClearMessages();
+    }
 
     private async Task SaveProvider()
     {
-        errorMsg = "";
+        ClearMessages();
         if (string.IsNullOrWhiteSpace(form.Name)) { errorMsg = "Name is required."; return; }
         if (string.IsNullOrWhiteSpace(form.ModelName)) { errorMsg = "Model name is required."; return; }
-        if (form.Type != LLMProviderType.Ollama && string.IsNullOrWhiteSpace(form.ApiKey) && editingId == null)
-        { errorMsg = "API key is required."; return; }
+        if (form.Type == LLMProviderType.Custom && string.IsNullOrWhiteSpace(form.AuthToken)) { errorMsg = "Auth token is required."; return; }
+        if (form.Type != LLMProviderType.Ollama && form.Type != LLMProviderType.Custom && string.IsNullOrWhiteSpace(form.ApiKey)) { errorMsg = "API key is required."; return; }
+        if ((form.Type == LLMProviderType.Ollama || form.Type == LLMProviderType.Custom) && string.IsNullOrWhiteSpace(form.Endpoint)) { errorMsg = "Endpoint URL is required."; return; }
 
         isSaving = true;
         try
         {
             if (editingId == null) await ProviderService.CreateAsync(form);
             else await ProviderService.UpdateAsync(form);
+
             await LoadAsync();
             CloseModal();
         }
-        catch (Exception ex) { errorMsg = ex.Message; }
-        finally { isSaving = false; }
+        catch (Exception ex)
+        {
+            errorMsg = ex.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
     }
 
     private async Task TestConnection()
     {
         isTesting = true;
-        errorMsg = "";
+        ClearMessages();
         try
         {
-            var ok = await ProviderService.TestConnectionAsync(form);
-            errorMsg = ok ? "" : "Connection failed — check endpoint and ensure Ollama is running.";
-            if (ok) errorMsg = "Connection successful!";
+            var result = await ProviderService.TestConnectionAsync(form);
+            statusMsg = result.Message;
+            statusIsSuccess = result.IsSuccess;
         }
-        catch { errorMsg = "Connection failed."; }
-        finally { isTesting = false; }
+        catch
+        {
+            statusMsg = "Connection failed.";
+            statusIsSuccess = false;
+        }
+        finally
+        {
+            isTesting = false;
+        }
+    }
+
+    private void ClearMessages()
+    {
+        errorMsg = "";
+        statusMsg = "";
+        statusIsSuccess = false;
     }
 
     private void ConfirmDelete(LLMProvider p) => deletingProvider = p;
@@ -309,9 +351,9 @@ else
 
     private static string ModelHint(LLMProviderType t) => t switch
     {
-        LLMProviderType.Claude => "claude-opus-4-6 · claude-sonnet-4-6 · claude-haiku-4-5-20251001",
-        LLMProviderType.OpenAI => "gpt-4o · gpt-4o-mini · gpt-4-turbo",
-        LLMProviderType.Ollama => "llama3 · mistral · phi3 · gemma2",
+        LLMProviderType.Claude => "claude-opus-4-6 | claude-sonnet-4-6 | claude-haiku-4-5-20251001",
+        LLMProviderType.OpenAI => "gpt-4o | gpt-4o-mini | gpt-4-turbo",
+        LLMProviderType.Ollama => "llama3 | mistral | phi3 | gemma2",
         LLMProviderType.Custom => "Model name as expected by your API endpoint",
         _ => ""
     };

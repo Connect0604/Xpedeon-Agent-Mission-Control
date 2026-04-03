@@ -2,7 +2,6 @@
 @rendermode InteractiveServer
 @implements IDisposable
 @inject LogService LogService
-@inject MockDataService DataService
 @inject IJSRuntime JS
 
 <PageTitle>System Logs — Xpedeon AMC</PageTitle>
@@ -104,7 +103,6 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
-        DataService.OnDataChanged += HandleMockChange;
         _timer = new Timer(async _ =>
         {
             await LoadAsync();
@@ -117,25 +115,9 @@
         }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
     }
 
-    private void HandleMockChange()
-    {
-        var mockLogs = DataService.GetLogs(50).ToList();
-        var combined = allLogs.Concat(mockLogs)
-            .DistinctBy(l => l.Id)
-            .OrderByDescending(l => l.Timestamp)
-            .Take(200)
-            .ToList();
-        allLogs = combined;
-        ApplyFilter();
-        InvokeAsync(StateHasChanged);
-    }
-
     private async Task LoadAsync()
     {
-        var dbLogs = await LogService.GetAllAsync(150);
-        var mockLogs = DataService.GetLogs(50).ToList();
-        allLogs = dbLogs.Concat(mockLogs)
-            .DistinctBy(l => l.Id)
+        allLogs = (await LogService.GetAllAsync(200))
             .OrderByDescending(l => l.Timestamp)
             .Take(200)
             .ToList();
@@ -164,6 +146,5 @@
     public void Dispose()
     {
         _timer?.Dispose();
-        DataService.OnDataChanged -= HandleMockChange;
     }
 }

@@ -1,81 +1,83 @@
 @inject MockDataService DataService
 @inject NavigationManager Nav
 @implements IDisposable
-@rendermode InteractiveServer
 
-<nav class="sidebar @(IsOpen ? "open" : "")" aria-label="Main navigation">
+<nav class="sidebar aura-rail @(IsOpen ? "open" : "") @(IsCollapsed ? "collapsed" : "")" aria-label="Main navigation">
     <!-- Brand -->
     <div class="sidebar-brand">
-        <div class="brand-icon" aria-hidden="true">
-            <i class="bi bi-broadcast-pin"></i>
+        <div class="brand-icon brand-icon--aura" aria-hidden="true">
+            <span class="brand-mark">X</span>
         </div>
         <div class="brand-text">
             <span class="brand-name">Xpedeon</span>
-            <span class="brand-sub">Agent Platform</span>
+            <span class="brand-sub">Mission Control</span>
         </div>
+        <button class="sidebar-collapse-btn" type="button" @onclick="OnToggleCollapse" aria-label="Collapse sidebar">
+            <i class="bi @(IsCollapsed ? "bi-layout-sidebar-inset" : "bi-layout-sidebar")"></i>
+        </button>
     </div>
 
     <!-- Navigation -->
     <div class="sidebar-nav">
         <div class="nav-section">Overview</div>
 
-        <NavLink class="nav-item" href="/" Match="NavLinkMatch.All">
+        <NavLink class="nav-item" href="/" Match="NavLinkMatch.All" @onclick="HandleNavigate">
             <i class="bi bi-grid-1x2" aria-hidden="true"></i>
-            Dashboard
+            <span class="nav-label">Dashboard</span>
         </NavLink>
 
         <div class="nav-section">Agents</div>
 
-        <NavLink class="nav-item" href="/agents" Match="NavLinkMatch.All">
+        <NavLink class="nav-item" href="/agents" Match="NavLinkMatch.All" @onclick="HandleNavigate">
             <i class="bi bi-robot" aria-hidden="true"></i>
-            All Agents
+            <span class="nav-label">All Agents</span>
             @if (errorCount > 0)
             {
                 <span class="nav-badge error" aria-label="@errorCount errors">@errorCount</span>
             }
         </NavLink>
 
-        <NavLink class="nav-item" href="/agents/create">
+        <NavLink class="nav-item" href="/agents/create" @onclick="HandleNavigate">
             <i class="bi bi-plus-circle" aria-hidden="true"></i>
-            Create Agent
+            <span class="nav-label">Create Agent</span>
         </NavLink>
 
-        <NavLink class="nav-item" href="/templates">
+        <NavLink class="nav-item" href="/templates" @onclick="HandleNavigate">
             <i class="bi bi-layout-text-window" aria-hidden="true"></i>
-            Templates
+            <span class="nav-label">Templates</span>
         </NavLink>
 
-        <NavLink class="nav-item" href="/swarms">
+        <NavLink class="nav-item" href="/swarms" @onclick="HandleNavigate">
             <i class="bi bi-diagram-3" aria-hidden="true"></i>
-            Swarms
+            <span class="nav-label">Swarms</span>
         </NavLink>
 
         <div class="nav-section">Operations</div>
 
-        <NavLink class="nav-item" href="/tasks">
+        <NavLink class="nav-item" href="/tasks" @onclick="HandleNavigate">
             <i class="bi bi-list-task" aria-hidden="true"></i>
-            Tasks
+            <span class="nav-label">Tasks</span>
             @if (runningCount > 0)
             {
                 <span class="nav-badge info" aria-label="@runningCount running">@runningCount</span>
             }
         </NavLink>
 
-        <NavLink class="nav-item" href="/logs">
+        <NavLink class="nav-item" href="/logs" @onclick="HandleNavigate">
             <i class="bi bi-terminal" aria-hidden="true"></i>
-            Logs
+            <span class="nav-label">Logs</span>
         </NavLink>
 
         <div class="nav-section">Configuration</div>
 
-        <NavLink class="nav-item" href="/providers">
+        <NavLink class="nav-item" href="/providers" @onclick="HandleNavigate">
             <i class="bi bi-cpu" aria-hidden="true"></i>
-            LLM Providers
+            <span class="nav-label">LLM Providers</span>
         </NavLink>
 
-        <NavLink class="nav-item" href="/mcp">
+        <NavLink class="nav-item" href="/mcp" @onclick="HandleNavigate">
             <i class="bi bi-plug" aria-hidden="true"></i>
-            MCP Servers
+            <span class="nav-label">MCP Servers</span>
         </NavLink>
     </div>
 
@@ -97,6 +99,9 @@
 
 @code {
     [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public bool IsCollapsed { get; set; }
+    [Parameter] public EventCallback OnToggleCollapse { get; set; }
+    [Parameter] public EventCallback OnNavigate { get; set; }
 
     private int errorCount;
     private int activeCount;
@@ -123,6 +128,11 @@
         activeCount  = agents.Count(a => a.Status is AgentStatus.Active or AgentStatus.Idle);
         totalCount   = agents.Count;
         runningCount = tasks.Count(t => t.Status == AgentTaskStatus.Running);
+    }
+
+    private Task HandleNavigate()
+    {
+        return OnNavigate.InvokeAsync();
     }
 
     public void Dispose() => DataService.OnDataChanged -= HandleChange;

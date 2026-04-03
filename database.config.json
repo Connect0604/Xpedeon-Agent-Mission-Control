@@ -1,0 +1,11 @@
+{
+  "Provider": "SqlServer",
+  "Server": "192.168.169.181",
+  "Database": "BZMGTLDB",
+  "Schema": "amc",
+  "IntegratedSecurity": false,
+  "UserId": "XEWEB_USER",
+  "Password": "Gp7#Zx!Qw@94Vm&K$T2LfY8C",
+  "FilePath": "xpedeon.db",
+  "TrustServerCertificate": true
+}

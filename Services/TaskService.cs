@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Concurrent;
 using XpedeonAgentMissionControl.Data;
 using XpedeonAgentMissionControl.Models;
 
@@ -9,12 +10,15 @@ public class TaskService
     private readonly IDbContextFactory<AppDbContext> _factory;
     private readonly LLMExecutionService _llm;
     private readonly DynamicSpawnService _spawn;
+    private readonly RealtimeService _realtime;
+    private static readonly ConcurrentDictionary<string, CancellationTokenSource> TaskCancellation = new();
 
-    public TaskService(IDbContextFactory<AppDbContext> factory, LLMExecutionService llm, DynamicSpawnService spawn)
+    public TaskService(IDbContextFactory<AppDbContext> factory, LLMExecutionService llm, DynamicSpawnService spawn, RealtimeService realtime)
     {
         _factory = factory;
         _llm = llm;
         _spawn = spawn;
+        _realtime = realtime;
     }
 
     public async Task<List<AgentTask>> GetAllAsync(int count = 100)
@@ -47,7 +51,10 @@ public class TaskService
     {
         await using var db = _factory.CreateDbContext();
 
-        var agent = await db.Agents.Include(a => a.LLMProvider).FirstOrDefaultAsync(a => a.Id == agentId)
+        var agent = await db.Agents
+            .Include(a => a.LLMProvider)
+            .Include(a => a.MCPServers).ThenInclude(m => m.MCPServer)
+            .FirstOrDefaultAsync(a => a.Id == agentId)
                     ?? throw new InvalidOperationException("Agent not found");
 
         var task = new AgentTask
@@ -74,6 +81,7 @@ public class TaskService
             task.Status = AgentTaskStatus.PendingApproval;
             db.Tasks.Add(task);
             await db.SaveChangesAsync();
+            await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
             return task;
         }
 
@@ -81,14 +89,26 @@ public class TaskService
         agent.Status = AgentStatus.Active;
         agent.CurrentTask = taskName;
         await db.SaveChangesAsync();
+        await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
+        await _realtime.AgentUpdatedAsync(agent.Id);
 
         // Execute async (fire and update)
+        var cts = new CancellationTokenSource();
+        TaskCancellation[task.Id] = cts;
         _ = Task.Run(async () =>
         {
-            if (agent.SpawnEnabled)
-                await _spawn.ExecuteWithSpawningAsync(task.Id, agent);
-            else
-                await ExecuteTaskAsync(task.Id, agent);
+            try
+            {
+                if (agent.SpawnEnabled)
+                    await _spawn.ExecuteWithSpawningAsync(task.Id, agent, cts.Token);
+                else
+                    await ExecuteTaskAsync(task.Id, agent, cts.Token);
+            }
+            finally
+            {
+                if (TaskCancellation.TryRemove(task.Id, out var source))
+                    source.Dispose();
+            }
         });
 
         return task;
@@ -100,7 +120,10 @@ public class TaskService
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == taskId);
         if (task == null || task.Status != AgentTaskStatus.PendingApproval) return;
 
-        var agent = await db.Agents.Include(a => a.LLMProvider).FirstOrDefaultAsync(a => a.Id == task.AgentId);
+        var agent = await db.Agents
+            .Include(a => a.LLMProvider)
+            .Include(a => a.MCPServers).ThenInclude(m => m.MCPServer)
+            .FirstOrDefaultAsync(a => a.Id == task.AgentId);
         if (agent == null) return;
 
         task.Status = AgentTaskStatus.Running;
@@ -108,13 +131,25 @@ public class TaskService
         agent.Status = AgentStatus.Active;
         agent.CurrentTask = task.Name;
         await db.SaveChangesAsync();
+        await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
+        await _realtime.AgentUpdatedAsync(agent.Id);
 
+        var cts = new CancellationTokenSource();
+        TaskCancellation[task.Id] = cts;
         _ = Task.Run(async () =>
         {
-            if (agent.SpawnEnabled)
-                await _spawn.ExecuteWithSpawningAsync(task.Id, agent);
-            else
-                await ExecuteTaskAsync(task.Id, agent);
+            try
+            {
+                if (agent.SpawnEnabled)
+                    await _spawn.ExecuteWithSpawningAsync(task.Id, agent, cts.Token);
+                else
+                    await ExecuteTaskAsync(task.Id, agent, cts.Token);
+            }
+            finally
+            {
+                if (TaskCancellation.TryRemove(task.Id, out var source))
+                    source.Dispose();
+            }
         });
     }
 
@@ -125,7 +160,22 @@ public class TaskService
         if (task == null) return;
         task.Status = AgentTaskStatus.Cancelled;
         task.CompletedAt = DateTime.UtcNow;
+        task.ErrorMessage ??= "Task cancelled.";
+
+        var agent = await db.Agents.FindAsync(task.AgentId);
+        if (agent != null && agent.CurrentTask == task.Name)
+        {
+            agent.Status = AgentStatus.Idle;
+            agent.CurrentTask = "Idle";
+        }
+
         await db.SaveChangesAsync();
+        if (TaskCancellation.TryGetValue(taskId, out var cts))
+            cts.Cancel();
+
+        await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
+        if (agent != null)
+            await _realtime.AgentUpdatedAsync(agent.Id);
     }
 
     public async Task SubmitFeedbackAsync(string taskId, int rating, string? note, string? correctedOutput)
@@ -148,9 +198,27 @@ public class TaskService
         });
 
         await db.SaveChangesAsync();
+        await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
     }
 
-    private async Task ExecuteTaskAsync(string taskId, Agent agent)
+    public async Task<AgentTask> RetryTaskAsync(string taskId)
+    {
+        await using var db = _factory.CreateDbContext();
+        var originalTask = await db.Tasks.FirstOrDefaultAsync(t => t.Id == taskId)
+            ?? throw new InvalidOperationException("Task not found.");
+
+        if (string.IsNullOrWhiteSpace(originalTask.Input))
+            throw new InvalidOperationException("Cannot retry a task without saved input.");
+
+        return await CreateAndRunAsync(
+            originalTask.AgentId,
+            originalTask.Name,
+            originalTask.Input,
+            originalTask.Priority,
+            TriggerSource.Manual);
+    }
+
+    private async Task ExecuteTaskAsync(string taskId, Agent agent, CancellationToken cancellationToken)
     {
         await using var db = _factory.CreateDbContext();
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == taskId);
@@ -158,10 +226,16 @@ public class TaskService
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             task.Progress = 10;
             await db.SaveChangesAsync();
+            await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
 
-            var result = await _llm.ExecuteAsync(agent, task.Input ?? string.Empty, task.SystemPromptSnapshot ?? agent.SystemPrompt);
+            var result = await _llm.ExecuteAsync(agent, task.Input ?? string.Empty, task.SystemPromptSnapshot ?? agent.SystemPrompt, cancellationToken);
+
+            await db.Entry(task).ReloadAsync(cancellationToken);
+            if (task.Status == AgentTaskStatus.Cancelled || cancellationToken.IsCancellationRequested)
+                throw new OperationCanceledException(cancellationToken);
 
             task.Output = result.Output;
             task.PromptTokens = result.PromptTokens;
@@ -193,6 +267,20 @@ public class TaskService
                 Level = AgentLogLevel.Success, Timestamp = DateTime.UtcNow
             });
         }
+        catch (OperationCanceledException)
+        {
+            task.Status = AgentTaskStatus.Cancelled;
+            task.CompletedAt = DateTime.UtcNow;
+            task.Progress = 0;
+            task.ErrorMessage ??= "Task cancelled.";
+
+            var agentRecord = await db.Agents.FindAsync(agent.Id);
+            if (agentRecord != null)
+            {
+                agentRecord.Status = AgentStatus.Idle;
+                agentRecord.CurrentTask = "Idle";
+            }
+        }
         catch (Exception ex)
         {
             task.Status = AgentTaskStatus.Failed;
@@ -216,5 +304,8 @@ public class TaskService
         }
 
         await db.SaveChangesAsync();
+        await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
+        await _realtime.AgentUpdatedAsync(agent.Id);
+        await _realtime.DashboardRefreshAsync();
     }
 }
