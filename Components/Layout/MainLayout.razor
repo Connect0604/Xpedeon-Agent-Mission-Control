@@ -1,7 +1,8 @@
+@rendermode InteractiveServer
 @inherits LayoutComponentBase
 
-<div class="app-shell">
-    <Sidebar IsOpen="_sidebarOpen" />
+<div class="app-shell @(_sidebarCollapsed ? "sidebar-collapsed" : "") @(_sidebarOpen ? "sidebar-mobile-open" : "")">
+    <Sidebar IsOpen="_sidebarOpen" IsCollapsed="_sidebarCollapsed" OnToggleCollapse="ToggleDesktopSidebar" OnNavigate="HandleNavigation" />
 
     @if (_sidebarOpen)
     {
@@ -11,7 +12,9 @@
     <div class="main-wrapper">
         <TopBar OnMenuClick="ToggleSidebar" />
         <main class="page-content" role="main">
-            @Body
+            <div class="page-content-inner">
+                @Body
+            </div>
         </main>
     </div>
 </div>
@@ -24,7 +27,12 @@
 
 @code {
     private bool _sidebarOpen;
+    private bool _sidebarCollapsed;
 
     private void ToggleSidebar() => _sidebarOpen = !_sidebarOpen;
+
+    private void ToggleDesktopSidebar() => _sidebarCollapsed = !_sidebarCollapsed;
+
     private void CloseSidebar()  => _sidebarOpen = false;
+    private void HandleNavigation() => _sidebarOpen = false;
 }

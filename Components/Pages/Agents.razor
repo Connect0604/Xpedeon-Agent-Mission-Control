@@ -1,7 +1,8 @@
 @page "/agents"
 @rendermode InteractiveServer
 @implements IDisposable
-@inject MockDataService DataService
+@inject AgentService AgentService
+@inject RealtimeService RealtimeService
 @inject NavigationManager NavManager
 
 <PageTitle>Agents — Xpedeon AMC</PageTitle>
@@ -25,7 +26,7 @@
 <div class="filter-bar">
     <div class="search-box">
         <i class="bi bi-search"></i>
-        <input type="text" placeholder="Search agents..." @bind="searchQuery" @bind:event="oninput" />
+        <input type="text" placeholder="Search agents..." @bind="searchQuery" @bind:event="oninput" @bind:after="ApplyFilter" />
     </div>
 
     @foreach (var status in AllStatuses)
@@ -54,7 +55,7 @@
     <div class="card card-pad empty-state">
         <div class="empty-icon"><i class="bi bi-robot"></i></div>
         <div class="empty-title">No agents match your filters</div>
-        <div class="empty-desc">Try adjusting the search or status filter.</div>
+        <div class="empty-desc">Try adjusting the search or status filter, or create a new agent.</div>
     </div>
 }
 else if (viewMode == "grid")
@@ -119,24 +120,25 @@ else
     private string viewMode     = "grid";
     private AgentStatus? statusFilter;
 
+    private Timer? _refreshTimer;
+
     private static readonly AgentStatus[] AllStatuses =
         Enum.GetValues<AgentStatus>();
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        Refresh();
-        DataService.OnDataChanged += HandleChange;
+        await RefreshAsync();
+        RealtimeService.RefreshRequested += HandleRealtimeChange;
+        _refreshTimer = new Timer(async _ =>
+        {
+            await RefreshAsync();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
     }
 
-    private void HandleChange()
+    private async Task RefreshAsync()
     {
-        Refresh();
-        InvokeAsync(StateHasChanged);
-    }
-
-    private void Refresh()
-    {
-        allAgents = DataService.GetAgents().ToList();
+        allAgents = await AgentService.GetAllAsync();
         ApplyFilter();
     }
 
@@ -162,5 +164,18 @@ else
 
     private void NavToAgent(string id) => Nav.NavigateTo($"/agents/{id}");
 
-    public void Dispose() => DataService.OnDataChanged -= HandleChange;
+    private void HandleRealtimeChange()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await RefreshAsync();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+        RealtimeService.RefreshRequested -= HandleRealtimeChange;
+    }
 }

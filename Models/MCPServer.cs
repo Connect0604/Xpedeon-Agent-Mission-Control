@@ -1,6 +1,6 @@
 namespace XpedeonAgentMissionControl.Models;
 
-public enum MCPTransportType { SSE, Stdio, WebSocket }
+public enum MCPTransportType { SSE, Stdio, WebSocket, Http }
 
 public class MCPServer
 {

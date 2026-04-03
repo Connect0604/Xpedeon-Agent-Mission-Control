@@ -11,21 +11,37 @@ namespace XpedeonAgentMissionControl.Services;
 public class RealtimeService
 {
     private readonly IHubContext<AgentHub> _hub;
+    public event Action? RefreshRequested;
 
     public RealtimeService(IHubContext<AgentHub> hub) => _hub = hub;
 
-    public Task AgentUpdatedAsync(string agentId)
-        => _hub.Clients.All.SendAsync("AgentUpdated", agentId);
+    public async Task AgentUpdatedAsync(string agentId)
+    {
+        RefreshRequested?.Invoke();
+        await _hub.Clients.All.SendAsync("AgentUpdated", agentId);
+    }
 
-    public Task TaskUpdatedAsync(string taskId, string agentId)
-        => _hub.Clients.All.SendAsync("TaskUpdated", taskId, agentId);
+    public async Task TaskUpdatedAsync(string taskId, string agentId)
+    {
+        RefreshRequested?.Invoke();
+        await _hub.Clients.All.SendAsync("TaskUpdated", taskId, agentId);
+    }
 
-    public Task LogAddedAsync(string agentId, string message, string level)
-        => _hub.Clients.All.SendAsync("LogAdded", agentId, message, level);
+    public async Task LogAddedAsync(string agentId, string message, string level)
+    {
+        RefreshRequested?.Invoke();
+        await _hub.Clients.All.SendAsync("LogAdded", agentId, message, level);
+    }
 
-    public Task DashboardRefreshAsync()
-        => _hub.Clients.All.SendAsync("DashboardRefresh");
+    public async Task DashboardRefreshAsync()
+    {
+        RefreshRequested?.Invoke();
+        await _hub.Clients.All.SendAsync("DashboardRefresh");
+    }
 
-    public Task AgentCreatedAsync(string agentId)
-        => _hub.Clients.All.SendAsync("AgentCreated", agentId);
+    public async Task AgentCreatedAsync(string agentId)
+    {
+        RefreshRequested?.Invoke();
+        await _hub.Clients.All.SendAsync("AgentCreated", agentId);
+    }
 }

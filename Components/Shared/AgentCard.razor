@@ -1,6 +1,6 @@
 @* Agent summary card for the grid view *@
 
-<a class="agent-card s-@StatusClass" href="/agents/@Agent.Id">
+<NavLink class="@($"agent-card s-{StatusClass}")" href="@($"/agents/{Agent.Id}")">
     <div class="agent-card-header">
         <div class="agent-avatar" style="background:@TypeBg; color:@TypeColor; border:1px solid @TypeBorder;">
             <i class="bi @TypeIcon"></i>
@@ -50,7 +50,7 @@
         </div>
         <span class="text-xs text-muted">up @Agent.UptimeFormatted</span>
     </div>
-</a>
+</NavLink>
 
 @code {
     [Parameter, EditorRequired] public Agent Agent { get; set; } = null!;

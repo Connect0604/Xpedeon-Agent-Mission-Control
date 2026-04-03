@@ -17,22 +17,25 @@ public class DynamicSpawnService
     private readonly LLMExecutionService _llm;
     private readonly IServiceProvider _services;
     private readonly ILogger<DynamicSpawnService> _logger;
+    private readonly RealtimeService _realtime;
 
     public DynamicSpawnService(
         IDbContextFactory<AppDbContext> factory,
         LLMExecutionService llm,
         IServiceProvider services,
-        ILogger<DynamicSpawnService> logger)
+        ILogger<DynamicSpawnService> logger,
+        RealtimeService realtime)
     {
         _factory = factory;
         _llm = llm;
         _services = services;
         _logger = logger;
+        _realtime = realtime;
     }
 
     // ── Entry point called from TaskService ──────────────────────────
 
-    public async Task ExecuteWithSpawningAsync(string parentTaskId, Agent parentAgent)
+    public async Task ExecuteWithSpawningAsync(string parentTaskId, Agent parentAgent, CancellationToken cancellationToken = default)
     {
         await using var db = _factory.CreateDbContext();
         var parentTask = await db.Tasks.FirstOrDefaultAsync(t => t.Id == parentTaskId);
@@ -40,31 +43,33 @@ public class DynamicSpawnService
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             // Guard: depth check
             if (parentTask.SpawnDepth >= parentAgent.MaxDepth)
             {
-                await FallbackToDirectAsync(parentTaskId, parentAgent);
+                await FallbackToDirectAsync(parentTaskId, parentAgent, cancellationToken);
                 return;
             }
 
             // Guard: spawn count budget
             if (parentAgent.MaxSpawns <= 0)
             {
-                await FallbackToDirectAsync(parentTaskId, parentAgent);
+                await FallbackToDirectAsync(parentTaskId, parentAgent, cancellationToken);
                 return;
             }
 
             parentTask.Progress = 5;
             await db.SaveChangesAsync();
+            await _realtime.TaskUpdatedAsync(parentTask.Id, parentTask.AgentId);
 
             // Decompose into sub-tasks
             var subTasks = parentAgent.SpawnMode == AgentSpawnMode.LLMDecided
-                ? await DecomposeLLMAsync(parentAgent, parentTask.Input ?? string.Empty)
+                ? await DecomposeLLMAsync(parentAgent, parentTask.Input ?? string.Empty, cancellationToken)
                 : DecomposeRuleBased(parentAgent, parentTask.Input ?? string.Empty);
 
             if (subTasks.Count == 0)
             {
-                await FallbackToDirectAsync(parentTaskId, parentAgent);
+                await FallbackToDirectAsync(parentTaskId, parentAgent, cancellationToken);
                 return;
             }
 
@@ -75,6 +80,7 @@ public class DynamicSpawnService
             parentTask.SpawnChildCount = subTasks.Count;
             parentTask.Progress = 10;
             await db.SaveChangesAsync();
+            await _realtime.TaskUpdatedAsync(parentTask.Id, parentTask.AgentId);
 
             _logger.LogInformation("Spawning {Count} child agents for task {TaskId}", subTasks.Count, parentTaskId);
 
@@ -82,17 +88,21 @@ public class DynamicSpawnService
             var childTaskIds = new List<string>();
             foreach (var (childName, childPrompt, childInput) in subTasks)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 var childAgent = await SpawnChildAgentAsync(parentAgent, childName, childPrompt, parentTask.SpawnDepth + 1);
-                var childTaskId = await CreateChildTaskAsync(childAgent, parentTaskId, childName, childInput, parentTask.Priority, parentTask.SpawnDepth + 1);
+                var childTaskId = await CreateChildTaskAsync(childAgent, parentTaskId, childName, childInput, parentTask.Priority, parentTask.SpawnDepth + 1, cancellationToken);
                 childTaskIds.Add(childTaskId);
             }
 
             // Wait for all children to finish (poll, with timeout)
             var timeout = TimeSpan.FromSeconds(parentAgent.TimeoutSeconds * subTasks.Count);
-            await WaitForChildrenAsync(childTaskIds, timeout);
+            var allCompleted = await WaitForChildrenAsync(childTaskIds, timeout, cancellationToken);
+            if (!allCompleted)
+                throw new TimeoutException("Timed out waiting for spawned child tasks to finish.");
 
             parentTask.Progress = 90;
             await db.SaveChangesAsync();
+            await _realtime.TaskUpdatedAsync(parentTask.Id, parentTask.AgentId);
 
             // Aggregate results
             var childOutputs = await CollectChildOutputsAsync(childTaskIds);
@@ -133,10 +143,33 @@ public class DynamicSpawnService
             });
 
             await db.SaveChangesAsync();
+            await _realtime.TaskUpdatedAsync(parentTask.Id, parentTask.AgentId);
+            await _realtime.AgentUpdatedAsync(parentAgent.Id);
+            await _realtime.DashboardRefreshAsync();
 
             // Cleanup ephemeral children
             if (parentAgent.SpawnLifecycle == AgentSpawnLifecycle.Ephemeral)
                 await CleanupEphemeralAsync(childTaskIds);
+        }
+        catch (OperationCanceledException)
+        {
+            await using var db2 = _factory.CreateDbContext();
+            var t = await db2.Tasks.FindAsync(parentTaskId);
+            if (t != null)
+            {
+                t.Status = AgentTaskStatus.Cancelled;
+                t.CompletedAt = DateTime.UtcNow;
+                t.ErrorMessage ??= "Task cancelled.";
+            }
+            var a = await db2.Agents.FindAsync(parentAgent.Id);
+            if (a != null)
+            {
+                a.Status = AgentStatus.Idle;
+                a.CurrentTask = "Idle";
+            }
+            await db2.SaveChangesAsync();
+            await _realtime.TaskUpdatedAsync(parentTaskId, parentAgent.Id);
+            await _realtime.AgentUpdatedAsync(parentAgent.Id);
         }
         catch (Exception ex)
         {
@@ -153,6 +186,8 @@ public class DynamicSpawnService
             var a = await db2.Agents.FindAsync(parentAgent.Id);
             if (a != null) { a.TasksFailed++; a.Status = AgentStatus.Error; }
             await db2.SaveChangesAsync();
+            await _realtime.TaskUpdatedAsync(parentTaskId, parentAgent.Id);
+            await _realtime.AgentUpdatedAsync(parentAgent.Id);
         }
     }
 
@@ -178,7 +213,7 @@ public class DynamicSpawnService
         }).ToList();
     }
 
-    private async Task<List<(string Name, string Prompt, string Input)>> DecomposeLLMAsync(Agent agent, string input)
+    private async Task<List<(string Name, string Prompt, string Input)>> DecomposeLLMAsync(Agent agent, string input, CancellationToken cancellationToken)
     {
         var orchestratorPrompt = @"You are a task decomposer. Analyse the input and break it into the smallest independent sub-tasks that can each be handled by a separate AI agent.
 
@@ -198,7 +233,7 @@ Do not include any text outside the JSON array.";
         try
         {
             var stub = new Agent { LLMProvider = agent.LLMProvider, SystemPrompt = orchestratorPrompt };
-            var result = await _llm.ExecuteAsync(stub, input, orchestratorPrompt);
+            var result = await _llm.ExecuteAsync(stub, input, orchestratorPrompt, cancellationToken);
             return ParseDecompositionJson(result.Output);
         }
         catch (Exception ex)
@@ -280,7 +315,7 @@ Do not include any text outside the JSON array.";
         return child;
     }
 
-    private async Task<string> CreateChildTaskAsync(Agent child, string parentTaskId, string name, string input, TaskPriority priority, int depth)
+    private async Task<string> CreateChildTaskAsync(Agent child, string parentTaskId, string name, string input, TaskPriority priority, int depth, CancellationToken cancellationToken)
     {
         await using var db = _factory.CreateDbContext();
 
@@ -306,16 +341,20 @@ Do not include any text outside the JSON array.";
 
         db.Tasks.Add(task);
         await db.SaveChangesAsync();
+        await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
 
         // Load child agent with LLMProvider for execution
-        var childWithProvider = await db.Agents.Include(a => a.LLMProvider).FirstOrDefaultAsync(a => a.Id == child.Id);
+        var childWithProvider = await db.Agents
+            .Include(a => a.LLMProvider)
+            .Include(a => a.MCPServers).ThenInclude(m => m.MCPServer)
+            .FirstOrDefaultAsync(a => a.Id == child.Id);
         if (childWithProvider != null)
-            _ = Task.Run(async () => await RunChildTaskAsync(task.Id, childWithProvider));
+            _ = Task.Run(async () => await RunChildTaskAsync(task.Id, childWithProvider, cancellationToken), cancellationToken);
 
         return task.Id;
     }
 
-    private async Task RunChildTaskAsync(string taskId, Agent agent)
+    private async Task RunChildTaskAsync(string taskId, Agent agent, CancellationToken cancellationToken)
     {
         await using var db = _factory.CreateDbContext();
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == taskId);
@@ -323,10 +362,12 @@ Do not include any text outside the JSON array.";
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             task.Progress = 20;
             await db.SaveChangesAsync();
+            await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
 
-            var result = await _llm.ExecuteAsync(agent, task.Input ?? string.Empty, task.SystemPromptSnapshot ?? agent.SystemPrompt);
+            var result = await _llm.ExecuteAsync(agent, task.Input ?? string.Empty, task.SystemPromptSnapshot ?? agent.SystemPrompt, cancellationToken);
 
             task.Output             = result.Output;
             task.PromptTokens       = result.PromptTokens;
@@ -348,6 +389,12 @@ Do not include any text outside the JSON array.";
                 agentRecord.Status = agent.IsEphemeral ? AgentStatus.Offline : AgentStatus.Idle;
             }
         }
+        catch (OperationCanceledException)
+        {
+            task.Status = AgentTaskStatus.Cancelled;
+            task.CompletedAt = DateTime.UtcNow;
+            task.ErrorMessage ??= "Child task cancelled.";
+        }
         catch (Exception ex)
         {
             task.Status       = AgentTaskStatus.Failed;
@@ -356,16 +403,17 @@ Do not include any text outside the JSON array.";
         }
 
         await db.SaveChangesAsync();
+        await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
     }
 
     // ── Wait + Aggregate ─────────────────────────────────────────────
 
-    private async Task WaitForChildrenAsync(List<string> childTaskIds, TimeSpan timeout)
+    private async Task<bool> WaitForChildrenAsync(List<string> childTaskIds, TimeSpan timeout, CancellationToken cancellationToken)
     {
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
-            await Task.Delay(2000);
+            await Task.Delay(2000, cancellationToken);
             await using var db = _factory.CreateDbContext();
             var pending = await db.Tasks
                 .Where(t => childTaskIds.Contains(t.Id) &&
@@ -373,9 +421,10 @@ Do not include any text outside the JSON array.";
                             t.Status != AgentTaskStatus.Failed &&
                             t.Status != AgentTaskStatus.Cancelled)
                 .CountAsync();
-            if (pending == 0) return;
+            if (pending == 0) return true;
         }
         _logger.LogWarning("Timed out waiting for {Count} child tasks", childTaskIds.Count);
+        return false;
     }
 
     private async Task<List<(string Name, string Output)>> CollectChildOutputsAsync(List<string> childTaskIds)
@@ -453,7 +502,7 @@ Do not include any text outside the JSON array.";
         }
     }
 
-    private async Task FallbackToDirectAsync(string taskId, Agent agent)
+    private async Task FallbackToDirectAsync(string taskId, Agent agent, CancellationToken cancellationToken)
     {
         await using var db = _factory.CreateDbContext();
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == taskId);
@@ -461,7 +510,7 @@ Do not include any text outside the JSON array.";
 
         try
         {
-            var result = await _llm.ExecuteAsync(agent, task.Input ?? string.Empty, task.SystemPromptSnapshot ?? agent.SystemPrompt);
+            var result = await _llm.ExecuteAsync(agent, task.Input ?? string.Empty, task.SystemPromptSnapshot ?? agent.SystemPrompt, cancellationToken);
             task.Output             = result.Output;
             task.PromptTokens       = result.PromptTokens;
             task.CompletionTokens   = result.CompletionTokens;
@@ -472,6 +521,12 @@ Do not include any text outside the JSON array.";
             task.CompletedAt        = DateTime.UtcNow;
             task.Progress           = 100;
         }
+        catch (OperationCanceledException)
+        {
+            task.Status = AgentTaskStatus.Cancelled;
+            task.CompletedAt = DateTime.UtcNow;
+            task.ErrorMessage ??= "Task cancelled.";
+        }
         catch (Exception ex)
         {
             task.Status       = AgentTaskStatus.Failed;
@@ -479,6 +534,7 @@ Do not include any text outside the JSON array.";
             task.CompletedAt  = DateTime.UtcNow;
         }
         await db.SaveChangesAsync();
+        await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
     }
 
     // ── Query helpers ────────────────────────────────────────────────

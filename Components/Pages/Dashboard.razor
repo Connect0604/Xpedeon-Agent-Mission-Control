@@ -5,14 +5,16 @@
 @inject TaskService TaskService
 @inject LogService LogService
 @inject MockDataService DataService
+@inject RealtimeService RealtimeService
 @inject NavigationManager Nav
 
 <PageTitle>Dashboard — Xpedeon AMC</PageTitle>
 
-<div class="page-header">
+<div class="page-header dashboard-hero">
     <div>
+        <div class="dashboard-kicker">Xpedeon Aura Workspace</div>
         <h1 class="page-title">Mission Control</h1>
-        <p class="page-subtitle">Real-time agent monitoring &amp; operations centre</p>
+        <p class="page-subtitle">Guide operations, supervise agents, and review live execution from a calmer command surface.</p>
     </div>
     <div class="flex items-center gap-3">
         <span class="live-pill"><span class="dot active sm"></span> LIVE</span>
@@ -24,7 +26,7 @@
 </div>
 
 <!-- KPI Row -->
-<div class="g-4 mb-6">
+<div class="g-4 mb-6 dashboard-metrics">
     <MetricCard Title="Total Agents"   Value="@summary.TotalAgents.ToString()"
                 Icon="bi-robot"        Variant="accent"
                 Sub="@($"{summary.ActiveAgents} active · {summary.IdleAgents} idle")" />
@@ -273,12 +275,22 @@
 
         // Also keep mock sim for agents that don't have real LLM yet
         DataService.OnDataChanged += HandleMockChange;
+        RealtimeService.RefreshRequested += HandleRealtimeChange;
     }
 
     private void HandleMockChange()
     {
         lastUpdated = DateTime.Now.ToString("HH:mm:ss");
         InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleRealtimeChange()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await RefreshAsync();
+            StateHasChanged();
+        });
     }
 
     private async Task RefreshAsync()
@@ -309,6 +321,7 @@
     {
         _timer?.Dispose();
         DataService.OnDataChanged -= HandleMockChange;
+        RealtimeService.RefreshRequested -= HandleRealtimeChange;
     }
 
     private static string FeedIcon(AgentLogLevel l) => l switch

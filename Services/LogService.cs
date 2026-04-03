@@ -7,8 +7,13 @@ namespace XpedeonAgentMissionControl.Services;
 public class LogService
 {
     private readonly IDbContextFactory<AppDbContext> _factory;
+    private readonly RealtimeService _realtime;
 
-    public LogService(IDbContextFactory<AppDbContext> factory) => _factory = factory;
+    public LogService(IDbContextFactory<AppDbContext> factory, RealtimeService realtime)
+    {
+        _factory = factory;
+        _realtime = realtime;
+    }
 
     public async Task<List<LogEntry>> GetAllAsync(int count = 200)
     {
@@ -59,6 +64,7 @@ public class LogService
             Timestamp = DateTime.UtcNow
         });
         await db.SaveChangesAsync();
+        await _realtime.LogAddedAsync(agentId ?? string.Empty, message, level.ToString());
     }
 
     public async Task ClearOldAsync(int keepDays = 30)

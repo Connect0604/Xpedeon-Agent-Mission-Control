@@ -7,8 +7,13 @@ namespace XpedeonAgentMissionControl.Services;
 public class AgentService
 {
     private readonly IDbContextFactory<AppDbContext> _factory;
+    private readonly RealtimeService _realtime;
 
-    public AgentService(IDbContextFactory<AppDbContext> factory) => _factory = factory;
+    public AgentService(IDbContextFactory<AppDbContext> factory, RealtimeService realtime)
+    {
+        _factory = factory;
+        _realtime = realtime;
+    }
 
     public async Task<List<Agent>> GetAllAsync()
     {
@@ -78,6 +83,8 @@ public class AgentService
 
         await LogAsync(db, agent.Id, agent.Name, $"Agent '{agent.Name}' created", AgentLogLevel.Info);
         await db.SaveChangesAsync();
+        await _realtime.AgentCreatedAsync(agent.Id);
+        await _realtime.DashboardRefreshAsync();
 
         return agent;
     }
@@ -114,6 +121,8 @@ public class AgentService
 
         db.Entry(existing).CurrentValues.SetValues(agent);
         await db.SaveChangesAsync();
+        await _realtime.AgentUpdatedAsync(agent.Id);
+        await _realtime.DashboardRefreshAsync();
         return existing;
     }
 
@@ -125,6 +134,8 @@ public class AgentService
         {
             db.Agents.Remove(agent);
             await db.SaveChangesAsync();
+            await _realtime.AgentUpdatedAsync(id);
+            await _realtime.DashboardRefreshAsync();
         }
     }
 
@@ -138,6 +149,7 @@ public class AgentService
         await db.SaveChangesAsync();
         await LogAsync(db, id, agent.Name, $"Status changed to {status}", AgentLogLevel.Info);
         await db.SaveChangesAsync();
+        await _realtime.AgentUpdatedAsync(id);
     }
 
     public async Task UpdateMetricsAsync(string id, double cpu, double memMB)
@@ -151,6 +163,7 @@ public class AgentService
         agent.CpuHistory.Add(Math.Round(cpu, 1));
         if (agent.CpuHistory.Count > 20) agent.CpuHistory.RemoveAt(0);
         await db.SaveChangesAsync();
+        await _realtime.AgentUpdatedAsync(id);
     }
 
     public async Task<DashboardSummary> GetSummaryAsync()

@@ -263,10 +263,17 @@ else
             <div class="modal-body">
                 <p class="text-secondary">Permanently delete <strong class="text-primary">@swarms.FirstOrDefault(s => s.Id == deletingId)?.Name</strong>?</p>
                 <p class="text-muted text-sm mt-2">All agents and their tasks/memory in this swarm will be deleted.</p>
+                @if (!string.IsNullOrWhiteSpace(errorMsg))
+                {
+                    <div class="alert alert-error mt-4">@errorMsg</div>
+                }
             </div>
             <div class="modal-footer">
                 <button class="btn btn-ghost" @onclick="() => deletingId = null">Cancel</button>
-                <button class="btn btn-danger" @onclick="DeleteSwarm">Delete Permanently</button>
+                <button class="btn btn-danger" @onclick="DeleteSwarm" disabled="@isSaving">
+                    @if (isSaving) { <span class="spinner"></span> }
+                    @(isSaving ? "Deleting..." : "Delete Permanently")
+                </button>
             </div>
         </div>
     </div>
@@ -359,9 +366,23 @@ else
     private async Task DeleteSwarm()
     {
         if (deletingId == null) return;
-        await SwarmService.DeleteSwarmAsync(deletingId);
-        deletingId = null;
-        await LoadAsync();
+
+        isSaving = true;
+        errorMsg = "";
+        try
+        {
+            await SwarmService.DeleteSwarmAsync(deletingId);
+            deletingId = null;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMsg = ex.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
     }
 
     private static string PreviewName(string swarmName, string pattern, int n)

@@ -4,7 +4,8 @@
 @inject AgentService AgentService
 @inject TaskService TaskService
 @inject MemoryService MemoryService
-@inject MockDataService DataService
+@inject LogService LogService
+@inject RealtimeService RealtimeService
 @inject NavigationManager Nav
 
 <PageTitle>@(agent?.Name ?? "Agent") — Xpedeon AMC</PageTitle>
@@ -20,7 +21,7 @@
         <div class="empty-icon"><i class="bi bi-robot"></i></div>
         <div class="empty-title">Agent not found</div>
         <div class="empty-desc">The agent ID "@AgentId" does not exist.</div>
-        <a href="/agents" class="btn btn-ghost mt-4"><i class="bi bi-arrow-left"></i> Back to Agents</a>
+        <button class="btn btn-ghost mt-4" @onclick='() => Nav.NavigateTo("/agents")'><i class="bi bi-arrow-left"></i> Back to Agents</button>
     </div>
 }
 else
@@ -54,13 +55,10 @@ else
                         disabled="@(agent.Status == AgentStatus.Offline || agent.IsCircuitOpen)">
                     <i class="bi bi-play-fill"></i> Run Task
                 </button>
-                <button class="btn btn-ghost btn-sm" @onclick='() => Nav.NavigateTo($"/agents/{AgentId}/learning")'>
-                    <i class="bi bi-stars"></i>
-                </button>
                 <button class="btn btn-ghost btn-sm" @onclick='() => Nav.NavigateTo($"/agents/{AgentId}/edit")'>
                     <i class="bi bi-pencil"></i>
                 </button>
-                <a href="/agents" class="btn btn-ghost btn-sm"><i class="bi bi-arrow-left"></i></a>
+                <button class="btn btn-ghost btn-sm" @onclick='() => Nav.NavigateTo("/agents")'><i class="bi bi-arrow-left"></i></button>
             </div>
         </div>
 
@@ -286,7 +284,13 @@ else
             }
             else
             {
-                <div class="task-list">
+                <div class="task-workspace">
+                    <div class="task-list-pane">
+                        <div class="task-list-pane__header">
+                            <div class="section-head"><i class="bi bi-list-task"></i> Task History</div>
+                            <span class="text-xs text-muted">@agentTasks.Count items</span>
+                        </div>
+                        <div class="task-list">
                     @foreach (var task in agentTasks)
                     {
                         <div class="task-card @(selectedTask?.Id == task.Id ? "task-card--selected" : "")"
@@ -339,18 +343,24 @@ else
                             }
                         </div>
                     }
-                </div>
-            }
-        </div>
+                        </div>
+                    </div>
 
-        <!-- Task Detail Panel -->
-        @if (selectedTask != null)
-        {
-            <div class="card card-pad mt-4 task-detail-panel">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s4);">
-                    <h3 class="section-title">@selectedTask.Name</h3>
-                    <button class="btn btn-ghost btn-sm" @onclick="() => selectedTask = null"><i class="bi bi-x-lg"></i></button>
-                </div>
+                    <div class="card card-pad task-detail-panel">
+                        @if (selectedTask != null)
+                        {
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s4);">
+                                <h3 class="section-title">@selectedTask.Name</h3>
+                                <div style="display:flex;gap:var(--s2);align-items:center;">
+                                    @if (selectedTask.Status != AgentTaskStatus.Running && selectedTask.Status != AgentTaskStatus.PendingApproval)
+                                    {
+                                        <button class="btn btn-ghost btn-sm" @onclick="() => RetryTask(selectedTask)" disabled="@isRetrying">
+                                            <i class="bi bi-arrow-clockwise"></i> @(isRetrying ? "Retrying..." : "Retry Task")
+                                        </button>
+                                    }
+                                    <button class="btn btn-ghost btn-sm task-detail-close" @onclick="() => selectedTask = null"><i class="bi bi-x-lg"></i></button>
+                                </div>
+                            </div>
 
                 @if (!string.IsNullOrWhiteSpace(selectedTask.Input))
                 {
@@ -433,8 +443,19 @@ else
                         <i class="bi bi-check-circle text-success"></i> Feedback recorded — used for agent learning
                     </div>
                 }
-            </div>
-        }
+                        }
+                        else
+                        {
+                            <div class="task-detail-empty">
+                                <div class="empty-icon"><i class="bi bi-layout-sidebar-inset"></i></div>
+                                <div class="empty-title">Select a Task</div>
+                                <div class="empty-desc">Choose a task from the left to inspect input, output, execution trace, and retry options.</div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
     }
 
     <!-- System Prompt Tab -->
@@ -647,6 +668,7 @@ else
     private string runTaskInput = "";
     private TaskPriority runPriority = TaskPriority.Medium;
     private bool isRunning;
+    private bool isRetrying;
     private string runError = "";
 
     private Timer? _refreshTimer;
@@ -654,6 +676,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         await RefreshAsync();
+        RealtimeService.RefreshRequested += HandleRealtimeChange;
         _refreshTimer = new Timer(async _ =>
         {
             await RefreshAsync();
@@ -668,12 +691,14 @@ else
         agent = await AgentService.GetByIdAsync(AgentId);
         if (agent == null) return;
         agentTasks = await TaskService.GetForAgentAsync(AgentId, 50);
-        agentLogs = DataService.GetLogsForAgent(AgentId, 50).ToList();
+        agentLogs = await LogService.GetForAgentAsync(AgentId, 50);
         agentMemories = await MemoryService.GetForAgentAsync(AgentId);
 
         // Refresh selected task
         if (selectedTask != null)
             selectedTask = agentTasks.FirstOrDefault(t => t.Id == selectedTask.Id) ?? selectedTask;
+        else if (activeTab == "tasks" && agentTasks.Any())
+            selectedTask = agentTasks.First();
     }
 
     private void OpenRunModal()
@@ -738,7 +763,41 @@ else
         await RefreshAsync();
     }
 
-    public void Dispose() => _refreshTimer?.Dispose();
+    private async Task RetryTask(AgentTask task)
+    {
+        isRetrying = true;
+        runError = "";
+        try
+        {
+            var retriedTask = await TaskService.RetryTaskAsync(task.Id);
+            activeTab = "tasks";
+            selectedTask = retriedTask;
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            runError = ex.Message;
+        }
+        finally
+        {
+            isRetrying = false;
+        }
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+        RealtimeService.RefreshRequested -= HandleRealtimeChange;
+    }
+
+    private void HandleRealtimeChange()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await RefreshAsync();
+            StateHasChanged();
+        });
+    }
 
     private string StatusClass => agent?.Status switch
     {

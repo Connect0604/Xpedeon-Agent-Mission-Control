@@ -2,9 +2,10 @@
 @rendermode InteractiveServer
 @inject TaskService TaskService
 @inject MockDataService DataService
+@inject RealtimeService RealtimeService
 @inject NavigationManager Nav
 
-<PageTitle>Tasks â€” Xpedeon AMC</PageTitle>
+<PageTitle>Tasks - Xpedeon AMC</PageTitle>
 
 <div class="page-header">
     <div>
@@ -13,7 +14,6 @@
     </div>
 </div>
 
-<!-- Tab Bar -->
 <div class="tab-bar">
     @foreach (var tab in Tabs)
     {
@@ -24,7 +24,6 @@
     }
 </div>
 
-<!-- Filter bar -->
 <div class="filter-bar">
     <div class="search-box">
         <i class="bi bi-search"></i>
@@ -36,7 +35,6 @@
     }
 </div>
 
-<!-- Pending Approvals Banner -->
 @if (pendingApprovals.Any())
 {
     <div class="card card-pad mb-4" style="border-color:var(--c-warning-border);background:var(--c-warning-bg);">
@@ -46,7 +44,7 @@
             <div class="approval-row">
                 <div>
                     <span class="text-sm font-medium text-primary">@t.Name</span>
-                    <span class="text-xs text-muted ml-2">Â· @t.AgentName</span>
+                    <span class="text-xs text-muted ml-2">· @t.AgentName</span>
                     @if (!string.IsNullOrWhiteSpace(t.Input))
                     {
                         <div class="text-xs text-muted font-mono mt-1">@t.Input[..Math.Min(100, t.Input.Length)]@(t.Input.Length > 100 ? "..." : "")</div>
@@ -65,7 +63,6 @@
     </div>
 }
 
-<!-- Task List -->
 @if (!filtered.Any())
 {
     <div class="card card-pad empty-state">
@@ -76,128 +73,143 @@
 }
 else
 {
-    <div class="task-list">
-        @foreach (var task in filtered)
-        {
-            <div class="task-card @(selectedTask?.Id == task.Id ? "task-card--selected" : "")"
-                 @onclick="() => SelectTask(task)">
-                <div class="task-card__header">
-                    <TaskStatusBadge Status="@task.Status" />
-                    <PriorityBadge Priority="@task.Priority" />
-                    <span class="text-sm font-medium text-primary ml-2">@task.Name</span>
-                    <span class="text-xs text-muted ml-2 font-mono">@task.AgentName</span>
-                    <span class="text-xs text-muted ml-auto">@RelTime(task.CreatedAt)</span>
-                </div>
-                @if (task.Status == AgentTaskStatus.Running)
+    <div class="task-workspace">
+        <div class="task-list-pane">
+            <div class="task-list-pane__header">
+                <div class="section-head"><i class="bi bi-list-task"></i> Task History</div>
+                <span class="text-xs text-muted">@filtered.Count items</span>
+            </div>
+            <div class="task-list">
+                @foreach (var task in filtered)
                 {
-                    <div class="prog-wrap mt-2">
-                        <div class="prog-track"><div class="prog-fill running" style="width:@task.Progress%"></div></div>
-                        <span class="prog-label">@task.Progress%</span>
-                    </div>
-                }
-                @if (task.TotalTokens > 0)
-                {
-                    <div class="task-meta mt-2">
-                        <span><i class="bi bi-hash"></i> @task.TotalTokens.ToString("N0") tokens</span>
-                        <span><i class="bi bi-currency-dollar"></i> $@task.CostUSD.ToString("F5")</span>
-                        @if (!string.IsNullOrWhiteSpace(task.ModelUsed))
+                    <div class="task-card @(selectedTask?.Id == task.Id ? "task-card--selected" : "")"
+                         @onclick="() => SelectTask(task)">
+                        <div class="task-card__header">
+                            <TaskStatusBadge Status="@task.Status" />
+                            <PriorityBadge Priority="@task.Priority" />
+                            <span class="text-sm font-medium text-primary ml-2">@task.Name</span>
+                            <span class="text-xs text-muted ml-2 font-mono">@task.AgentName</span>
+                            <span class="text-xs text-muted ml-auto">@RelTime(task.CreatedAt)</span>
+                        </div>
+                        @if (task.Status == AgentTaskStatus.Running)
                         {
-                            <span class="font-mono text-xs">@task.ModelUsed</span>
+                            <div class="prog-wrap mt-2">
+                                <div class="prog-track"><div class="prog-fill running" style="width:@task.Progress%"></div></div>
+                                <span class="prog-label">@task.Progress%</span>
+                            </div>
+                        }
+                        @if (task.TotalTokens > 0)
+                        {
+                            <div class="task-meta mt-2">
+                                <span><i class="bi bi-hash"></i> @task.TotalTokens.ToString("N0") tokens</span>
+                                <span><i class="bi bi-currency-dollar"></i> $@task.CostUSD.ToString("F5")</span>
+                                @if (!string.IsNullOrWhiteSpace(task.ModelUsed))
+                                {
+                                    <span class="font-mono text-xs">@task.ModelUsed</span>
+                                }
+                            </div>
                         }
                     </div>
                 }
             </div>
-        }
-    </div>
-}
-
-<!-- Task Detail Drawer -->
-@if (selectedTask != null)
-{
-    <div class="card card-pad mt-4 task-detail-panel">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s4);">
-            <div>
-                <h3 class="section-title">@selectedTask.Name</h3>
-                <p class="text-muted text-sm">
-                    @selectedTask.AgentName Â·
-                    <a href="/agents/@selectedTask.AgentId" class="text-accent">View Agent</a>
-                </p>
-            </div>
-            <button class="btn btn-ghost btn-sm" @onclick="() => selectedTask = null"><i class="bi bi-x-lg"></i></button>
         </div>
 
-        @if (!string.IsNullOrWhiteSpace(selectedTask.Input))
-        {
-            <div class="form-group">
-                <label class="form-label text-xs text-muted">Input</label>
-                <div class="output-box">@selectedTask.Input</div>
-            </div>
-        }
-
-        @if (!string.IsNullOrWhiteSpace(selectedTask.Output))
-        {
-            <div class="form-group">
-                <label class="form-label text-xs text-muted">Output</label>
-                <div class="output-box output-box--success">@selectedTask.Output</div>
-            </div>
-        }
-
-        @if (!string.IsNullOrWhiteSpace(selectedTask.ErrorMessage))
-        {
-            <div class="form-group">
-                <label class="form-label text-xs text-muted">Error</label>
-                <div class="output-box output-box--error">@selectedTask.ErrorMessage</div>
-            </div>
-        }
-
-        @if (!string.IsNullOrWhiteSpace(selectedTask.ExecutionTrace))
-        {
-            <div class="form-group">
-                <label class="form-label text-xs text-muted">Execution Trace</label>
-                <div class="output-box font-mono text-xs">@selectedTask.ExecutionTrace</div>
-            </div>
-        }
-
-        @if (selectedTask.TotalTokens > 0)
-        {
-            <div class="token-stats">
-                <div class="token-stat">
-                    <span class="text-muted text-xs">Prompt Tokens</span>
-                    <span class="font-mono">@selectedTask.PromptTokens.ToString("N0")</span>
+        <div class="card card-pad task-detail-panel">
+            @if (selectedTask != null)
+            {
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s4);">
+                    <div>
+                        <h3 class="section-title">@selectedTask.Name</h3>
+                        <p class="text-muted text-sm">
+                            @selectedTask.AgentName ·
+                            <a href="/agents/@selectedTask.AgentId" class="text-accent">View Agent</a>
+                        </p>
+                    </div>
+                    <button class="btn btn-ghost btn-sm task-detail-close" @onclick="() => selectedTask = null"><i class="bi bi-x-lg"></i></button>
                 </div>
-                <div class="token-stat">
-                    <span class="text-muted text-xs">Completion Tokens</span>
-                    <span class="font-mono">@selectedTask.CompletionTokens.ToString("N0")</span>
-                </div>
-                <div class="token-stat">
-                    <span class="text-muted text-xs">Total Tokens</span>
-                    <span class="font-mono font-medium">@selectedTask.TotalTokens.ToString("N0")</span>
-                </div>
-                <div class="token-stat">
-                    <span class="text-muted text-xs">Cost</span>
-                    <span class="font-mono">$@selectedTask.CostUSD.ToString("F6")</span>
-                </div>
-            </div>
-        }
 
-        @if (selectedTask.Status == AgentTaskStatus.Completed && selectedTask.FeedbackRating == null)
-        {
-            <div class="feedback-row mt-4">
-                <span class="text-muted text-xs">Was this output useful?</span>
-                <button class="btn btn-ghost btn-sm text-success" @onclick="() => SubmitFeedback(selectedTask, 5)">
-                    <i class="bi bi-hand-thumbs-up"></i> Yes
-                </button>
-                <button class="btn btn-ghost btn-sm text-error" @onclick="() => SubmitFeedback(selectedTask, 1)">
-                    <i class="bi bi-hand-thumbs-down"></i> No
-                </button>
-            </div>
-        }
-        @if (selectedTask.FeedbackRating != null)
-        {
-            <div class="text-xs text-muted mt-3">
-                <i class="bi bi-check-circle text-success"></i> Feedback recorded
-            </div>
-        }
+                @if (!string.IsNullOrWhiteSpace(selectedTask.Input))
+                {
+                    <div class="form-group">
+                        <label class="form-label text-xs text-muted">Input</label>
+                        <div class="output-box">@selectedTask.Input</div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(selectedTask.Output))
+                {
+                    <div class="form-group">
+                        <label class="form-label text-xs text-muted">Output</label>
+                        <div class="output-box output-box--success">@selectedTask.Output</div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(selectedTask.ErrorMessage))
+                {
+                    <div class="form-group">
+                        <label class="form-label text-xs text-muted">Error</label>
+                        <div class="output-box output-box--error">@selectedTask.ErrorMessage</div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(selectedTask.ExecutionTrace))
+                {
+                    <div class="form-group">
+                        <label class="form-label text-xs text-muted">Execution Trace</label>
+                        <div class="output-box font-mono text-xs">@selectedTask.ExecutionTrace</div>
+                    </div>
+                }
+
+                @if (selectedTask.TotalTokens > 0)
+                {
+                    <div class="token-stats">
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Prompt Tokens</span>
+                            <span class="font-mono">@selectedTask.PromptTokens.ToString("N0")</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Completion Tokens</span>
+                            <span class="font-mono">@selectedTask.CompletionTokens.ToString("N0")</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Total Tokens</span>
+                            <span class="font-mono font-medium">@selectedTask.TotalTokens.ToString("N0")</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Cost</span>
+                            <span class="font-mono">$@selectedTask.CostUSD.ToString("F6")</span>
+                        </div>
+                    </div>
+                }
+
+                @if (selectedTask.Status == AgentTaskStatus.Completed && selectedTask.FeedbackRating == null)
+                {
+                    <div class="feedback-row mt-4">
+                        <span class="text-muted text-xs">Was this output useful?</span>
+                        <button class="btn btn-ghost btn-sm text-success" @onclick="() => SubmitFeedback(selectedTask, 5)">
+                            <i class="bi bi-hand-thumbs-up"></i> Yes
+                        </button>
+                        <button class="btn btn-ghost btn-sm text-error" @onclick="() => SubmitFeedback(selectedTask, 1)">
+                            <i class="bi bi-hand-thumbs-down"></i> No
+                        </button>
+                    </div>
+                }
+                @if (selectedTask.FeedbackRating != null)
+                {
+                    <div class="text-xs text-muted mt-3">
+                        <i class="bi bi-check-circle text-success"></i> Feedback recorded
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="task-detail-empty">
+                    <div class="empty-icon"><i class="bi bi-layout-sidebar-inset"></i></div>
+                    <div class="empty-title">Select a Task</div>
+                    <div class="empty-desc">Choose a task from the left to inspect input, output, execution trace, and agent context.</div>
+                </div>
+            }
+        </div>
     </div>
 }
 
@@ -226,6 +238,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
+        RealtimeService.RefreshRequested += HandleRealtimeChange;
         _timer = new Timer(async _ => { await LoadAsync(); await InvokeAsync(StateHasChanged); },
             null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
     }
@@ -237,6 +250,8 @@ else
         ApplyFilter();
         if (selectedTask != null)
             selectedTask = allTasks.FirstOrDefault(t => t.Id == selectedTask.Id) ?? selectedTask;
+        else if (filtered.Any())
+            selectedTask = filtered.First();
     }
 
     private void ApplyFilter()
@@ -268,8 +283,24 @@ else
         _ => allTasks.Count
     };
 
-    private void SetTab(string tab) { activeTab = tab; ApplyFilter(); }
-    private void TogglePrio(TaskPriority p) { prioFilter = prioFilter == p ? null : p; ApplyFilter(); }
+    private void SetTab(string tab)
+    {
+        activeTab = tab;
+        ApplyFilter();
+        if (filtered.Any() && (selectedTask == null || filtered.All(t => t.Id != selectedTask.Id)))
+            selectedTask = filtered.First();
+    }
+
+    private void TogglePrio(TaskPriority p)
+    {
+        prioFilter = prioFilter == p ? null : p;
+        ApplyFilter();
+        if (filtered.Any() && (selectedTask == null || filtered.All(t => t.Id != selectedTask.Id)))
+            selectedTask = filtered.First();
+        else if (!filtered.Any())
+            selectedTask = null;
+    }
+
     private void SelectTask(AgentTask task) => selectedTask = selectedTask?.Id == task.Id ? null : task;
 
     private async Task ApproveTask(string id)
@@ -299,5 +330,18 @@ else
              : $"{(int)d.TotalDays}d ago";
     }
 
-    public void Dispose() => _timer?.Dispose();
+    private void HandleRealtimeChange()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        RealtimeService.RefreshRequested -= HandleRealtimeChange;
+    }
 }
