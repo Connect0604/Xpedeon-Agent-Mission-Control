@@ -22,6 +22,8 @@ public class AppDbContext : DbContext
     public DbSet<LLMProvider> LLMProviders => Set<LLMProvider>();
     public DbSet<Swarm> Swarms => Set<Swarm>();
     public DbSet<AgentTool> AgentTools => Set<AgentTool>();
+    public DbSet<SkillDefinition> SkillDefinitions => Set<SkillDefinition>();
+    public DbSet<AgentSkillAssignment> AgentSkillAssignments => Set<AgentSkillAssignment>();
     public DbSet<MCPServer> MCPServers => Set<MCPServer>();
     public DbSet<AgentMCPServer> AgentMCPServers => Set<AgentMCPServer>();
     public DbSet<AgentMemory> AgentMemories => Set<AgentMemory>();
@@ -29,6 +31,8 @@ public class AppDbContext : DbContext
     public DbSet<PromptHistory> PromptHistories => Set<PromptHistory>();
     public DbSet<AgentTemplate> AgentTemplates => Set<AgentTemplate>();
     public DbSet<AgentSchedule> AgentSchedules => Set<AgentSchedule>();
+    public DbSet<EvaluationScenario> EvaluationScenarios => Set<EvaluationScenario>();
+    public DbSet<EvaluationRun> EvaluationRuns => Set<EvaluationRun>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -59,6 +63,8 @@ public class AppDbContext : DbContext
              .HasForeignKey(a => a.SwarmId).OnDelete(DeleteBehavior.SetNull);
             e.HasMany(a => a.Tools).WithOne(t => t.Agent)
              .HasForeignKey(t => t.AgentId).OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(a => a.Skills).WithOne(s => s.Agent)
+             .HasForeignKey(s => s.AgentId).OnDelete(DeleteBehavior.Cascade);
             e.HasMany(a => a.Memories).WithOne(m => m.Agent)
              .HasForeignKey(m => m.AgentId).OnDelete(DeleteBehavior.Cascade);
             e.HasMany(a => a.PromptHistory).WithOne(p => p.Agent)
@@ -102,6 +108,26 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<AgentTool>(e =>
         {
             e.HasKey(t => t.Id);
+        });
+
+        // SkillDefinition
+        modelBuilder.Entity<SkillDefinition>(e =>
+        {
+            e.HasKey(s => s.Id);
+            e.HasOne<LLMProvider>()
+             .WithMany()
+             .HasForeignKey(s => s.PreferredProviderId)
+             .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // AgentSkillAssignment
+        modelBuilder.Entity<AgentSkillAssignment>(e =>
+        {
+            e.HasKey(s => new { s.AgentId, s.SkillDefinitionId });
+            e.HasOne(s => s.Agent).WithMany(a => a.Skills)
+             .HasForeignKey(s => s.AgentId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(s => s.SkillDefinition).WithMany(d => d.AgentAssignments)
+             .HasForeignKey(s => s.SkillDefinitionId).OnDelete(DeleteBehavior.Cascade);
         });
 
         // MCPServer
@@ -151,10 +177,84 @@ public class AppDbContext : DbContext
             e.HasIndex(s => s.AgentId).IsUnique();
         });
 
+        // EvaluationScenario
+        modelBuilder.Entity<EvaluationScenario>(e =>
+        {
+            e.HasKey(s => s.Id);
+            e.HasOne(s => s.BaseAgent).WithMany()
+             .HasForeignKey(s => s.BaseAgentId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // EvaluationRun
+        modelBuilder.Entity<EvaluationRun>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.Property(r => r.CostUSD).HasColumnType("decimal(18,6)");
+            e.HasOne(r => r.Scenario).WithMany(s => s.Runs)
+             .HasForeignKey(r => r.EvaluationScenarioId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         if (Database.ProviderName?.Contains("SqlServer", StringComparison.OrdinalIgnoreCase) == true)
         {
             ApplySqlServerObjectMappings(modelBuilder);
         }
+
+        modelBuilder.Entity<SkillDefinition>().HasData(
+            new SkillDefinition
+            {
+                Id = "skill-001",
+                Name = "DB Schema Lookup",
+                Description = "Retrieve table definitions, indexes, and stored procedure shapes through approved MCP database tools.",
+                PromptSnippet = "Use this skill for database metadata requests. Prefer exact object names and return concise structured schema summaries.",
+                AllowedMcpToolNamesJson = "[\"xpedeon-database-tool\",\"xpedeon-database-legacy-tool\"]",
+                PreferredModelName = "Hermes 3 / tool-calling model",
+                MaxToolCalls = 4,
+                RequiresApproval = false,
+                IsBuiltIn = true,
+                IsEnabled = true,
+                CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+            },
+            new SkillDefinition
+            {
+                Id = "skill-002",
+                Name = "Invoice Validation",
+                Description = "Validate invoice records, detect anomalies, and summarize issues before posting or approval.",
+                PromptSnippet = "Use this skill when validating invoices. Highlight missing fields, duplicates, suspicious amounts, and approval blockers before giving a recommendation.",
+                AllowedMcpToolNamesJson = "[]",
+                PreferredModelName = "Hermes 3 / high-precision validator",
+                MaxToolCalls = 2,
+                RequiresApproval = true,
+                IsBuiltIn = true,
+                IsEnabled = true,
+                CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+            },
+            new SkillDefinition
+            {
+                Id = "skill-003",
+                Name = "ERP Sync Audit",
+                Description = "Audit ERP sync tasks, compare system states, and call out mismatches with follow-up actions.",
+                PromptSnippet = "Use this skill for reconciliation and sync audits. Focus on mismatches, source-of-truth decisions, and next-step actions.",
+                AllowedMcpToolNamesJson = "[]",
+                MaxToolCalls = 3,
+                RequiresApproval = false,
+                IsBuiltIn = true,
+                IsEnabled = true,
+                CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+            },
+            new SkillDefinition
+            {
+                Id = "skill-004",
+                Name = "Cost Analysis",
+                Description = "Analyze budget variance, burn rates, and overspend patterns with actionable recommendations.",
+                PromptSnippet = "Use this skill for project cost analysis. Summarize overspend drivers, likely risk areas, and recommended interventions in a business-friendly format.",
+                AllowedMcpToolNamesJson = "[]",
+                MaxToolCalls = 2,
+                RequiresApproval = false,
+                IsBuiltIn = true,
+                IsEnabled = true,
+                CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+            }
+        );
 
         // Seed Xpedeon built-in templates
         modelBuilder.Entity<AgentTemplate>().HasData(
@@ -273,6 +373,8 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<LLMProvider>().ToTable("LLM_PROVIDERS");
         modelBuilder.Entity<Swarm>().ToTable("SWARMS");
         modelBuilder.Entity<AgentTool>().ToTable("AGENT_TOOLS");
+        modelBuilder.Entity<SkillDefinition>().ToTable("SKILL_DEFINITIONS");
+        modelBuilder.Entity<AgentSkillAssignment>().ToTable("AGENT_SKILL_ASSIGNMENTS");
         modelBuilder.Entity<MCPServer>().ToTable("MCP_SERVERS");
         modelBuilder.Entity<AgentMCPServer>().ToTable("AGENT_MCP_SERVERS");
         modelBuilder.Entity<AgentMemory>().ToTable("AGENT_MEMORIES");
@@ -280,6 +382,8 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<PromptHistory>().ToTable("PROMPT_HISTORIES");
         modelBuilder.Entity<AgentTemplate>().ToTable("AGENT_TEMPLATES");
         modelBuilder.Entity<AgentSchedule>().ToTable("AGENT_SCHEDULES");
+        modelBuilder.Entity<EvaluationScenario>().ToTable("EVALUATION_SCENARIOS");
+        modelBuilder.Entity<EvaluationRun>().ToTable("EVALUATION_RUNS");
 
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {

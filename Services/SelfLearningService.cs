@@ -37,8 +37,8 @@ public class SelfLearningService
             .ToListAsync();
 
         var rated    = tasks.Where(t => t.FeedbackRating.HasValue).ToList();
-        var positive = rated.Count(t => t.FeedbackRating == 1);
-        var negative = rated.Count(t => t.FeedbackRating == -1);
+        var positive = rated.Count(t => IsPositiveRating(t.FeedbackRating));
+        var negative = rated.Count(t => IsNegativeRating(t.FeedbackRating));
 
         var history = await db.PromptHistories
             .Where(p => p.AgentId == agentId)
@@ -78,21 +78,25 @@ public class SelfLearningService
             throw new InvalidOperationException("Agent has no system prompt to refine.");
 
         // Collect recent negative-feedback samples
-        var negativeTasks = await db.Tasks
+        var negativeTasks = (await db.Tasks
             .Where(t => t.AgentId == agentId
-                     && t.FeedbackRating == -1
+                     && t.FeedbackRating.HasValue
                      && !string.IsNullOrEmpty(t.Output))
+            .ToListAsync())
+            .Where(t => IsNegativeRating(t.FeedbackRating))
             .OrderByDescending(t => t.CreatedAt)
             .Take(5)
-            .ToListAsync();
+            .ToList();
 
-        var positiveTasks = await db.Tasks
+        var positiveTasks = (await db.Tasks
             .Where(t => t.AgentId == agentId
-                     && t.FeedbackRating == 1
+                     && t.FeedbackRating.HasValue
                      && !string.IsNullOrEmpty(t.Output))
+            .ToListAsync())
+            .Where(t => IsPositiveRating(t.FeedbackRating))
             .OrderByDescending(t => t.CreatedAt)
             .Take(3)
-            .ToListAsync();
+            .ToList();
 
         // Build a meta-prompt asking the LLM to improve the system prompt
         var refinementRequest = BuildRefinementPrompt(agent.SystemPrompt, negativeTasks, positiveTasks);
@@ -134,15 +138,24 @@ public class SelfLearningService
 
         var stats = await GetStatsAsync(agentId);
 
+        foreach (var history in await db.PromptHistories
+                     .Where(p => p.AgentId == agentId && p.IsActive)
+                     .ToListAsync())
+        {
+            history.IsActive = false;
+        }
+
         // Save new history entry
         var historyEntry = new PromptHistory
         {
             AgentId       = agentId,
             Prompt        = newPrompt,
             Version       = stats.CurrentVersion + 1,
+            PreviousPrompt = agent.SystemPrompt,
             ChangeReason  = PromptChangeReason.FeedbackDriven,
             ChangeNote    = reason,
             SuccessRateAtChange = stats.SuccessRate,
+            IsActive      = true,
             CreatedAt     = DateTime.UtcNow
         };
 
@@ -162,12 +175,11 @@ public class SelfLearningService
 
         await using var db = _factory.CreateDbContext();
 
-        var rating = task.FeedbackRating switch
-        {
-            1  => "positive",
-            -1 => "negative",
-            _  => "neutral"
-        };
+        var rating = IsPositiveRating(task.FeedbackRating)
+            ? "positive"
+            : IsNegativeRating(task.FeedbackRating)
+                ? "negative"
+                : "neutral";
 
         var content = $"Task: {task.Name}\nInput: {task.Input}\nOutput: {task.Output}\nFeedback: {rating}";
 
@@ -238,6 +250,10 @@ public class SelfLearningService
         if (string.IsNullOrEmpty(text)) return "(empty)";
         return text.Length <= max ? text : text[..max] + "…";
     }
+
+    private static bool IsPositiveRating(int? rating) => rating.HasValue && rating.Value >= 4;
+
+    private static bool IsNegativeRating(int? rating) => rating.HasValue && rating.Value <= 2;
 }
 
 // ── DTOs ────────────────────────────────────────────────────────────

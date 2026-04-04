@@ -3,6 +3,7 @@
 @using Microsoft.EntityFrameworkCore
 @inject AgentService AgentService
 @inject LLMProviderService ProviderService
+@inject SkillService SkillService
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject NavigationManager Nav
 
@@ -73,6 +74,22 @@ else
         <!-- LLM & System Prompt -->
         <div class="card card-pad">
             <h3 class="section-title mb-4">LLM Provider & System Prompt</h3>
+            <div class="form-group">
+                <label class="form-label">Execution Backend</label>
+                <div class="type-picker">
+                    @foreach (var backend in Enum.GetValues<ExecutionBackend>())
+                    {
+                        <button class="type-btn @(agent.ExecutionBackend == backend ? "type-btn--active" : "")"
+                                @onclick="() => agent.ExecutionBackend = backend">
+                            <i class="bi @(backend == ExecutionBackend.Local ? "bi-cpu" : "bi-box-arrow-up-right")"></i> @(backend == ExecutionBackend.Local ? "Local" : "Hermes/OpenClaw")
+                        </button>
+                    }
+                </div>
+                <div class="form-hint">
+                    <i class="bi bi-info-circle"></i>
+                    Delegated runs still use the same approval and task history flow, but execution happens in the external Hermes/OpenClaw runtime.
+                </div>
+            </div>
             <div class="form-group">
                 <label class="form-label">LLM Provider</label>
                 <div class="provider-picker">
@@ -169,6 +186,50 @@ else
                             </div>
                             <span class="mcp-transport-badge @mcp.TransportType.ToString().ToLower() ml-auto">@mcp.TransportType</span>
                         </label>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="card card-pad">
+            <h3 class="section-title mb-4">Capability Skills</h3>
+            <p class="text-secondary text-sm mb-4">Attach reusable skills that shape prompts, tool access, and guardrails.</p>
+            @if (!allSkills.Any())
+            {
+                <div class="text-muted text-sm">No skills configured.</div>
+            }
+            else
+            {
+                <div class="skill-pick-grid">
+                    @foreach (var skill in allSkills)
+                    {
+                        var isAssigned = assignedSkillIds.Contains(skill.Id);
+                        <div class="skill-pick-card @(isAssigned ? "skill-pick-card--selected" : "")"
+                             @onclick="() => ToggleSkill(skill.Id)">
+                            <div class="flex items-start gap-3">
+                                <div class="provider-icon provider-icon--custom">
+                                    <i class="bi bi-stars"></i>
+                                </div>
+                                <div style="flex:1;">
+                                    <div class="text-sm font-medium">@skill.Name</div>
+                                    <div class="text-xs text-muted mt-1">@skill.Description</div>
+                                    <div class="text-xs text-muted mt-2">
+                                        @if (skill.RequiresApproval)
+                                        {
+                                            <span class="tag">Approval</span>
+                                        }
+                                        @if (skill.MaxToolCalls.HasValue)
+                                        {
+                                            <span class="tag">Max @skill.MaxToolCalls tools</span>
+                                        }
+                                    </div>
+                                </div>
+                                @if (isAssigned)
+                                {
+                                    <i class="bi bi-check-circle-fill text-accent"></i>
+                                }
+                            </div>
+                        </div>
                     }
                 </div>
             }
@@ -323,6 +384,19 @@ else
                 </label>
                 @if (scheduleEnabled)
                 {
+                    <div class="form-group mb-3">
+                        <label class="form-label">Quick Presets</label>
+                        <div class="type-picker">
+                            @foreach (var preset in schedulePresets)
+                            {
+                                <button type="button"
+                                        class="type-btn @(cronExpression == preset.Expression ? "type-btn--active" : "")"
+                                        @onclick='() => ApplySchedulePreset(preset.Expression)'>
+                                    <i class="bi bi-clock-history"></i> @preset.Label
+                                </button>
+                            }
+                        </div>
+                    </div>
                     <div class="form-row">
                         <div class="form-group">
                             <label class="form-label">Cron Expression</label>
@@ -346,6 +420,24 @@ else
                         <label class="form-label">Default Input</label>
                         <textarea class="form-input" rows="3" @bind="scheduleInput"
                                   placeholder="Default task input sent on each scheduled run..."></textarea>
+                    </div>
+                    <div class="token-stats">
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Next Run</span>
+                            <span>@NextRunPreview</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Last Run</span>
+                            <span>@LastRunPreview</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Total Runs</span>
+                            <span>@(agent?.Schedule?.TotalRuns ?? 0)</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Mode</span>
+                            <span>@(agent?.ExecutionBackend == ExecutionBackend.HermesOpenClaw ? "Delegated" : "Local")</span>
+                        </div>
                     </div>
                 }
             </div>
@@ -393,7 +485,9 @@ else
     private Agent? agent;
     private List<LLMProvider> providers = new();
     private List<MCPServer> allMcpServers = new();
+    private List<SkillDefinition> allSkills = new();
     private HashSet<string> assignedMcpIds = new();
+    private HashSet<string> assignedSkillIds = new();
     private bool isSaving;
     private bool showDeleteConfirm;
     private string errorMsg = "";
@@ -403,6 +497,13 @@ else
     private string cronExpression = "0 9 * * *";
     private string scheduleInput = "";
     private TaskPriority schedulePriority = TaskPriority.Medium;
+    private static readonly (string Label, string Expression)[] schedulePresets =
+    {
+        ("Hourly", "0 * * * *"),
+        ("Daily 9 AM", "0 9 * * *"),
+        ("Weekdays 9 AM", "0 9 * * 1,2,3,4,5"),
+        ("Monday 9 AM", "0 9 * * 1")
+    };
 
     protected override async Task OnInitializedAsync()
     {
@@ -411,9 +512,14 @@ else
 
         await using var db = DbFactory.CreateDbContext();
         allMcpServers = await db.MCPServers.Where(m => m.IsEnabled).OrderBy(m => m.Name).ToListAsync();
+        allSkills = await SkillService.GetAllAsync();
 
         var existing = await db.AgentMCPServers.Where(a => a.AgentId == AgentId).ToListAsync();
         assignedMcpIds = existing.Select(a => a.MCPServerId).ToHashSet();
+        assignedSkillIds = agent?.Skills
+            .Where(s => s.IsEnabled)
+            .Select(s => s.SkillDefinitionId)
+            .ToHashSet() ?? new HashSet<string>();
 
         if (agent?.Schedule != null)
         {
@@ -428,6 +534,16 @@ else
     {
         if (assigned) assignedMcpIds.Add(mcpId);
         else assignedMcpIds.Remove(mcpId);
+    }
+
+    private void ToggleSkill(string skillId)
+    {
+        if (!assignedSkillIds.Remove(skillId)) assignedSkillIds.Add(skillId);
+    }
+
+    private void ApplySchedulePreset(string expression)
+    {
+        cronExpression = expression;
     }
 
     private async Task SaveAgent()
@@ -452,7 +568,9 @@ else
                     {
                         AgentId = AgentId, CronExpression = cronExpression,
                         DefaultInput = scheduleInput, Priority = schedulePriority,
-                        IsEnabled = true, CreatedAt = DateTime.UtcNow
+                        IsEnabled = true, CreatedAt = DateTime.UtcNow,
+                        LastRunAt = null,
+                        NextRunAt = AgentSchedulerService.ComputeNext(cronExpression, DateTime.UtcNow)
                     });
                 }
                 else
@@ -461,11 +579,14 @@ else
                     existing.DefaultInput = scheduleInput;
                     existing.Priority = schedulePriority;
                     existing.IsEnabled = true;
+                    existing.LastRunAt = null;
+                    existing.NextRunAt = AgentSchedulerService.ComputeNext(cronExpression, DateTime.UtcNow);
                 }
             }
             else if (existing != null)
             {
                 existing.IsEnabled = false;
+                existing.NextRunAt = null;
             }
             await db.SaveChangesAsync();
 
@@ -484,6 +605,8 @@ else
                 db2.AgentMCPServers.Add(new AgentMCPServer { AgentId = AgentId, MCPServerId = mcpId });
             }
             await db2.SaveChangesAsync();
+
+            await SkillService.SetAgentSkillsAsync(AgentId, assignedSkillIds);
 
             Nav.NavigateTo($"/agents/{AgentId}");
         }
@@ -506,6 +629,16 @@ else
         "0 0 * * *"   => "Every day at midnight",
         _ => "Custom cron schedule"
     };
+
+    private string NextRunPreview
+        => !scheduleEnabled
+            ? "Disabled"
+            : AgentSchedulerService.ComputeNext(cronExpression, DateTime.UtcNow).ToLocalTime().ToString("dd MMM yyyy HH:mm");
+
+    private string LastRunPreview
+        => agent?.Schedule?.LastRunAt.HasValue == true
+            ? agent.Schedule.LastRunAt.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm")
+            : "Never";
 
     private static int EstimateTokens(string text) => (int)(text.Length / 3.8);
 

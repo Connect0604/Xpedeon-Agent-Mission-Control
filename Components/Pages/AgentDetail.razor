@@ -1,5 +1,6 @@
 @page "/agents/{AgentId}"
 @rendermode InteractiveServer
+@using System.Text.Json
 @implements IDisposable
 @inject AgentService AgentService
 @inject TaskService TaskService
@@ -256,6 +257,9 @@ else
                             }
                         </div>
                         <div style="display:flex;gap:var(--s2);flex-shrink:0;">
+                            <button class="btn btn-sm btn-ghost" @onclick="() => ReviewPendingTask(t)">
+                                <i class="bi bi-eye"></i> Review
+                            </button>
                             <button class="btn btn-sm btn-ghost text-error" @onclick="() => CancelTask(t.Id)">
                                 <i class="bi bi-x-lg"></i> Reject
                             </button>
@@ -357,6 +361,9 @@ else
                                         <button class="btn btn-ghost btn-sm" @onclick="() => RetryTask(selectedTask)" disabled="@isRetrying">
                                             <i class="bi bi-arrow-clockwise"></i> @(isRetrying ? "Retrying..." : "Retry Task")
                                         </button>
+                                        <button class="btn btn-ghost btn-sm" @onclick="() => ReplayTask(selectedTask)" disabled="@isReplaying">
+                                            <i class="bi bi-arrow-repeat"></i> @(isReplaying ? "Replaying..." : "Replay")
+                                        </button>
                                     }
                                     <button class="btn btn-ghost btn-sm task-detail-close" @onclick="() => selectedTask = null"><i class="bi bi-x-lg"></i></button>
                                 </div>
@@ -391,6 +398,80 @@ else
                     <div class="form-group">
                         <label class="form-label text-muted text-xs">Execution Trace</label>
                         <div class="output-box font-mono text-xs">@selectedTask.ExecutionTrace</div>
+                    </div>
+                }
+
+                @if (selectedTask.ExecutionBackendSnapshot == ExecutionBackend.HermesOpenClaw || !string.IsNullOrWhiteSpace(selectedTask.ExternalRunId))
+                {
+                    <div class="token-stats">
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Backend</span>
+                            <span>@selectedTask.ExecutionBackendSnapshot</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">External Status</span>
+                            <span>@selectedTask.ExternalStatus</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">External Run</span>
+                            <span class="font-mono">@(selectedTask.ExternalRunId ?? "Not submitted")</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Last Sync</span>
+                            <span>@(selectedTask.ExternalLastSyncedAt?.ToLocalTime().ToString("dd MMM HH:mm:ss") ?? "—")</span>
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(selectedTask.ExternalTrace))
+                    {
+                        <div class="form-group mt-4">
+                            <label class="form-label text-muted text-xs">External Trace</label>
+                            <div class="output-box font-mono text-xs">@selectedTask.ExternalTrace</div>
+                        </div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(selectedTask.ExternalError))
+                    {
+                        <div class="form-group">
+                            <label class="form-label text-muted text-xs">External Error</label>
+                            <div class="output-box output-box--error">@selectedTask.ExternalError</div>
+                        </div>
+                    }
+                }
+
+                @if (selectedTask.Status == AgentTaskStatus.PendingApproval)
+                {
+                    <div class="form-group">
+                        <label class="form-label text-muted text-xs">Approval Evidence</label>
+                        <div class="output-box">@selectedTask.ApprovalEvidence</div>
+                    </div>
+                    <div class="token-stats">
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Provider</span>
+                            <span class="font-mono">@selectedTask.ProviderSnapshotName</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Model</span>
+                            <span class="font-mono">@selectedTask.ProviderSnapshotModel</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Skills</span>
+                            <span>@(GetSnapshotNames(selectedTask.SkillSnapshotJson).Any() ? string.Join(", ", GetSnapshotNames(selectedTask.SkillSnapshotJson)) : "None")</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">MCP</span>
+                            <span>@(GetSnapshotNames(selectedTask.MCPServerSnapshotJson).Any() ? string.Join(", ", GetSnapshotNames(selectedTask.MCPServerSnapshotJson)) : "None")</span>
+                        </div>
+                    </div>
+                    <div class="form-group mt-4">
+                        <label class="form-label text-muted text-xs">Approval Comment</label>
+                        <textarea class="form-input" rows="3" @bind="approvalCommentDraft" placeholder="Optional reviewer comment..."></textarea>
+                    </div>
+                    <div class="feedback-row mt-3">
+                        <button class="btn btn-ghost btn-sm text-error" @onclick="() => CancelTask(selectedTask.Id, approvalCommentDraft)">
+                            <i class="bi bi-x-lg"></i> Reject
+                        </button>
+                        <button class="btn btn-primary btn-sm" @onclick="() => ApproveTask(selectedTask.Id, approvalCommentDraft)">
+                            <i class="bi bi-check-lg"></i> Approve
+                        </button>
                     </div>
                 }
 
@@ -669,6 +750,8 @@ else
     private TaskPriority runPriority = TaskPriority.Medium;
     private bool isRunning;
     private bool isRetrying;
+    private bool isReplaying;
+    private string approvalCommentDraft = "";
     private string runError = "";
 
     private Timer? _refreshTimer;
@@ -740,6 +823,12 @@ else
         await RefreshAsync();
     }
 
+    private async Task ApproveTask(string taskId, string? approvalComment)
+    {
+        await TaskService.ApproveTaskAsync(taskId, approvalComment);
+        await RefreshAsync();
+    }
+
     private async Task DeleteMemory(string memoryId)
     {
         await MemoryService.DeleteAsync(memoryId);
@@ -751,6 +840,12 @@ else
     private async Task CancelTask(string taskId)
     {
         await TaskService.CancelTaskAsync(taskId);
+        await RefreshAsync();
+    }
+
+    private async Task CancelTask(string taskId, string? approvalComment)
+    {
+        await TaskService.CancelTaskAsync(taskId, approvalComment);
         await RefreshAsync();
     }
 
@@ -782,6 +877,35 @@ else
         {
             isRetrying = false;
         }
+    }
+
+    private async Task ReplayTask(AgentTask task)
+    {
+        isReplaying = true;
+        runError = "";
+        try
+        {
+            var replayedTask = await TaskService.ReplayTaskAsync(task.Id);
+            activeTab = "tasks";
+            selectedTask = replayedTask;
+            approvalCommentDraft = "";
+            await RefreshAsync();
+        }
+        catch (Exception ex)
+        {
+            runError = ex.Message;
+        }
+        finally
+        {
+            isReplaying = false;
+        }
+    }
+
+    private void ReviewPendingTask(AgentTask task)
+    {
+        activeTab = "tasks";
+        selectedTask = task;
+        approvalCommentDraft = task.ApprovalComment ?? "";
     }
 
     public void Dispose()
@@ -839,4 +963,28 @@ else
 
     private static int EstimateTokens(string text)
         => string.IsNullOrWhiteSpace(text) ? 0 : (int)(text.Length / 3.8);
+
+    private static List<string> GetSnapshotNames(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return new List<string>();
+
+        try
+        {
+            return (JsonSerializer.Deserialize<List<SnapshotName>>(json) ?? new List<SnapshotName>())
+                .Where(x => !string.IsNullOrWhiteSpace(x.Name))
+                .Select(x => x.Name!)
+                .ToList();
+        }
+        catch
+        {
+            return new List<string>();
+        }
+    }
+
+    private sealed class SnapshotName
+    {
+        public string? Id { get; set; }
+        public string? Name { get; set; }
+    }
 }

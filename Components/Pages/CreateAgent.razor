@@ -3,6 +3,7 @@
 @inject AgentService AgentService
 @inject LLMProviderService ProviderService
 @inject TemplateService TemplateService
+@inject SkillService SkillService
 @inject NavigationManager Nav
 
 <PageTitle>Create Agent — Xpedeon AMC</PageTitle>
@@ -125,6 +126,24 @@
                 <h3 class="section-title mb-4">LLM Provider & System Prompt</h3>
 
                 <div class="form-group">
+                    <label class="form-label">Execution Backend</label>
+                    <div class="type-picker">
+                        @foreach (var backend in Enum.GetValues<ExecutionBackend>())
+                        {
+                            <button class="type-btn @(agent.ExecutionBackend == backend ? "type-btn--active" : "")"
+                                    @onclick="() => agent.ExecutionBackend = backend">
+                                <i class="bi @(backend == ExecutionBackend.Local ? "bi-cpu" : "bi-box-arrow-up-right")"></i>
+                                <span>@(backend == ExecutionBackend.Local ? "Local" : "Hermes/OpenClaw")</span>
+                            </button>
+                        }
+                    </div>
+                    <div class="form-hint">
+                        <i class="bi bi-info-circle"></i>
+                        Local runs stay inside Mission Control. Hermes/OpenClaw delegates execution to the external runtime after approval.
+                    </div>
+                </div>
+
+                <div class="form-group">
                     <label class="form-label">LLM Provider <span class="text-error">*</span></label>
                     @if (!providers.Any())
                     {
@@ -214,6 +233,48 @@
                         </label>
                     </div>
                 </div>
+            </div>
+
+            <div class="card card-pad mt-4">
+                <h3 class="section-title mb-4">Capability Skills</h3>
+                @if (!skillsCatalog.Any())
+                {
+                    <div class="text-muted text-sm">No skills are configured.</div>
+                }
+                else
+                {
+                    <div class="skill-pick-grid">
+                        @foreach (var skill in skillsCatalog)
+                        {
+                            <div class="skill-pick-card @(selectedSkillIds.Contains(skill.Id) ? "skill-pick-card--selected" : "")"
+                                 @onclick="() => ToggleSkill(skill.Id)">
+                                <div class="flex items-start gap-3">
+                                    <div class="provider-icon provider-icon--custom">
+                                        <i class="bi bi-stars"></i>
+                                    </div>
+                                    <div style="flex:1;">
+                                        <div class="text-sm font-medium">@skill.Name</div>
+                                        <div class="text-xs text-muted mt-1">@skill.Description</div>
+                                        <div class="text-xs text-muted mt-2">
+                                            @if (skill.RequiresApproval)
+                                            {
+                                                <span class="tag">Approval</span>
+                                            }
+                                            @if (skill.MaxToolCalls.HasValue)
+                                            {
+                                                <span class="tag">Max @skill.MaxToolCalls tools</span>
+                                            }
+                                        </div>
+                                    </div>
+                                    @if (selectedSkillIds.Contains(skill.Id))
+                                    {
+                                        <i class="bi bi-check-circle-fill text-accent"></i>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
             </div>
 
             <div class="card card-pad mt-4">
@@ -321,6 +382,10 @@
                         <span class="text-sm">@agent.Type</span>
                     </div>
                     <div class="summary-item">
+                        <span class="text-muted text-xs">Execution Backend</span>
+                        <span class="text-sm">@agent.ExecutionBackend</span>
+                    </div>
+                    <div class="summary-item">
                         <span class="text-muted text-xs">LLM Provider</span>
                         <span class="text-sm">@(providers.FirstOrDefault(p => p.Id == agent.LLMProviderId)?.DisplayName ?? "Not set")</span>
                     </div>
@@ -335,6 +400,14 @@
                     <div class="summary-item">
                         <span class="text-muted text-xs">Tools</span>
                         <span class="text-sm">@(selectedTools.Any() ? string.Join(", ", selectedTools) : "None")</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="text-muted text-xs">Skills</span>
+                        <span class="text-sm">
+                            @(selectedSkillIds.Any()
+                                ? string.Join(", ", skillsCatalog.Where(s => selectedSkillIds.Contains(s.Id)).Select(s => s.Name))
+                                : "None")
+                        </span>
                     </div>
                 </div>
             </div>
@@ -472,8 +545,10 @@
 
     private List<LLMProvider> providers = new();
     private List<AgentTemplate> templates = new();
+    private List<SkillDefinition> skillsCatalog = new();
     private string? selectedTemplateId;
     private HashSet<string> selectedTools = new();
+    private HashSet<string> selectedSkillIds = new();
     private int currentStep = 1;
     private bool isSaving;
     private string errorMsg = "";
@@ -494,6 +569,7 @@
     {
         providers = await ProviderService.GetAllAsync();
         templates = await TemplateService.GetAllAsync();
+        skillsCatalog = await SkillService.GetAllAsync();
 
         // Set default provider
         var def = providers.FirstOrDefault(p => p.IsDefault) ?? providers.FirstOrDefault();
@@ -516,6 +592,7 @@
             agent = CreateDefaultAgent();
             agent.LLMProviderId = currentProviderId;
             selectedTools.Clear();
+            selectedSkillIds.Clear();
             return;
         }
 
@@ -529,6 +606,11 @@
     private void ToggleTool(string tool)
     {
         if (!selectedTools.Remove(tool)) selectedTools.Add(tool);
+    }
+
+    private void ToggleSkill(string skillId)
+    {
+        if (!selectedSkillIds.Remove(skillId)) selectedSkillIds.Add(skillId);
     }
 
     private void NextStep()
@@ -570,6 +652,11 @@
             Name = name,
             Type = ToolType.Custom,
             Description = availableTools.GetValueOrDefault(name).desc ?? name,
+            IsEnabled = true
+        }).ToList();
+        agentToCreate.Skills = selectedSkillIds.Select(id => new AgentSkillAssignment
+        {
+            SkillDefinitionId = id,
             IsEnabled = true
         }).ToList();
 
@@ -638,6 +725,7 @@
         target.Name = source.Name;
         target.Type = source.Type;
         target.Description = source.Description;
+        target.ExecutionBackend = source.ExecutionBackend;
         target.LLMProviderId = source.LLMProviderId;
         target.SystemPrompt = source.SystemPrompt;
         target.CurrentTask = source.CurrentTask;

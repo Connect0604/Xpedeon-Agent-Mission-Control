@@ -1,0 +1,181 @@
+@page "/schedules"
+@rendermode InteractiveServer
+@implements IDisposable
+@inject ScheduleService ScheduleService
+@inject NavigationManager Nav
+@inject RealtimeService RealtimeService
+
+<PageTitle>Schedules - Xpedeon AMC</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Schedules</h1>
+        <p class="page-subtitle">Monitor enabled cron jobs, upcoming agent runs, and recent scheduled task results.</p>
+    </div>
+</div>
+
+<div class="learning-kpi-row">
+    <div class="learning-kpi">
+        <div class="learning-kpi__val">@overview.EnabledSchedules</div>
+        <div class="learning-kpi__lbl">Enabled Schedules</div>
+    </div>
+    <div class="learning-kpi">
+        <div class="learning-kpi__val">@overview.NextHourSchedules</div>
+        <div class="learning-kpi__lbl">Due In 1 Hour</div>
+    </div>
+    <div class="learning-kpi @(overview.OverdueSchedules > 0 ? "text-error" : "")">
+        <div class="learning-kpi__val">@overview.OverdueSchedules</div>
+        <div class="learning-kpi__lbl">Overdue</div>
+    </div>
+    <div class="learning-kpi">
+        <div class="learning-kpi__val">@overview.ScheduledTasksToday</div>
+        <div class="learning-kpi__lbl">Runs Today</div>
+    </div>
+    <div class="learning-kpi @(overview.ScheduledFailuresToday > 0 ? "text-error" : "")">
+        <div class="learning-kpi__val">@overview.ScheduledFailuresToday</div>
+        <div class="learning-kpi__lbl">Failures Today</div>
+    </div>
+    <div class="learning-kpi">
+        <div class="learning-kpi__val">@schedules.Count</div>
+        <div class="learning-kpi__lbl">Total Tracked</div>
+    </div>
+</div>
+
+<div class="g-2 mt-4">
+    <div class="card card-pad">
+        <div class="section-head"><i class="bi bi-calendar-event"></i> Active Cron Jobs</div>
+        @if (!schedules.Any())
+        {
+            <div class="empty-state" style="padding:var(--s6);">
+                <div class="empty-icon"><i class="bi bi-calendar2-x"></i></div>
+                <div class="empty-title">No schedules configured</div>
+                <div class="empty-desc">Enable cron on an agent’s edit page to start monitoring scheduled runs here.</div>
+            </div>
+        }
+        else
+        {
+            <div class="schedule-list">
+                @foreach (var schedule in schedules)
+                {
+                    var nextRun = schedule.IsEnabled && schedule.NextRunAt.HasValue ? schedule.NextRunAt.Value : (DateTime?)null;
+                    <div class="schedule-row @(schedule.IsEnabled ? "" : "schedule-row--disabled")">
+                        <div class="schedule-row__main">
+                            <div class="schedule-row__title">
+                                <span class="text-sm font-medium">@(schedule.Agent?.Name ?? schedule.AgentId)</span>
+                                <span class="badge @(schedule.IsEnabled ? "badge-success" : "badge-error")">@(schedule.IsEnabled ? "Enabled" : "Disabled")</span>
+                            </div>
+                            <div class="text-xs text-muted font-mono mt-1">@schedule.CronExpression</div>
+                            @if (!string.IsNullOrWhiteSpace(schedule.DefaultInput))
+                            {
+                                <div class="task-output-preview mt-2">@schedule.DefaultInput[..Math.Min(160, schedule.DefaultInput.Length)]@(schedule.DefaultInput.Length > 160 ? "..." : "")</div>
+                            }
+                        </div>
+                        <div class="schedule-row__meta">
+                            <div><span class="text-muted text-xs">Next Run</span><span>@(nextRun.HasValue ? nextRun.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm") : "Not scheduled")</span></div>
+                            <div><span class="text-muted text-xs">Last Run</span><span>@(schedule.LastRunAt.HasValue ? schedule.LastRunAt.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm") : "Never")</span></div>
+                            <div><span class="text-muted text-xs">Priority</span><span>@schedule.Priority</span></div>
+                            <div><span class="text-muted text-xs">Total Runs</span><span>@schedule.TotalRuns</span></div>
+                        </div>
+                        <div class="schedule-row__actions">
+                            <button class="btn btn-ghost btn-sm" @onclick='() => Nav.NavigateTo($"/agents/{schedule.AgentId}")'>
+                                <i class="bi bi-eye"></i> Agent
+                            </button>
+                            <button class="btn btn-ghost btn-sm" @onclick='() => Nav.NavigateTo($"/agents/{schedule.AgentId}/edit")'>
+                                <i class="bi bi-pencil"></i> Edit Schedule
+                            </button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    <div class="card card-pad">
+        <div class="section-head"><i class="bi bi-clock-history"></i> Recent Scheduled Runs</div>
+        @if (!recentScheduledTasks.Any())
+        {
+            <div class="empty-state" style="padding:var(--s6);">
+                <div class="empty-icon"><i class="bi bi-hourglass-split"></i></div>
+                <div class="empty-title">No scheduled runs yet</div>
+                <div class="empty-desc">Recent scheduled task executions will appear here once cron jobs start firing.</div>
+            </div>
+        }
+        else
+        {
+            <div class="schedule-task-list">
+                @foreach (var task in recentScheduledTasks)
+                {
+                    <div class="schedule-task-item" @onclick='() => Nav.NavigateTo("/tasks")'>
+                        <div class="schedule-task-item__title">
+                            <TaskStatusBadge Status="@task.Status" />
+                            <span class="text-sm font-medium">@task.Name</span>
+                            <span class="text-xs text-muted ml-auto">@RelTime(task.CreatedAt)</span>
+                        </div>
+                        <div class="schedule-task-item__meta">
+                            <span>@task.AgentName</span>
+                            <span>Priority: @task.Priority</span>
+                            <span>Tokens: @task.TotalTokens</span>
+                            @if (task.ExecutionBackendSnapshot == ExecutionBackend.HermesOpenClaw)
+                            {
+                                <span>Backend: @task.ExecutionBackendSnapshot</span>
+                            }
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(task.ErrorMessage))
+                        {
+                            <div class="text-xs text-error mt-1">@task.ErrorMessage</div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<AgentSchedule> schedules = new();
+    private List<AgentTask> recentScheduledTasks = new();
+    private ScheduleOverview overview = new();
+    private Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        RealtimeService.RefreshRequested += HandleRefreshRequested;
+        _timer = new Timer(async _ =>
+        {
+            await RefreshAsync();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    private async Task RefreshAsync()
+    {
+        schedules = await ScheduleService.GetSchedulesAsync();
+        recentScheduledTasks = await ScheduleService.GetRecentScheduledTasksAsync(25);
+        overview = await ScheduleService.GetOverviewAsync();
+    }
+
+    private void HandleRefreshRequested()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await RefreshAsync();
+            StateHasChanged();
+        });
+    }
+
+    private static string RelTime(DateTime dt)
+    {
+        var d = DateTime.UtcNow - dt;
+        return d.TotalSeconds < 60 ? "just now"
+             : d.TotalMinutes < 60 ? $"{(int)d.TotalMinutes}m ago"
+             : d.TotalHours < 24 ? $"{(int)d.TotalHours}h ago"
+             : $"{(int)d.TotalDays}d ago";
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        RealtimeService.RefreshRequested -= HandleRefreshRequested;
+    }
+}

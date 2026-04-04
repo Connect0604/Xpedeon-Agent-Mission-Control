@@ -10,6 +10,10 @@ builder.Configuration.AddJsonFile("database.config.json", optional: false, reloa
 var databaseConfig = builder.Configuration
     .Get<DatabaseConfig>() ?? new DatabaseConfig();
 builder.Services.AddSingleton(databaseConfig);
+var hermesOpenClawConfig = builder.Configuration
+    .GetSection("HermesOpenClaw")
+    .Get<HermesOpenClawConfig>() ?? new HermesOpenClawConfig();
+builder.Services.AddSingleton(hermesOpenClawConfig);
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
@@ -42,11 +46,16 @@ builder.Services.AddScoped<AgentService>();
 builder.Services.AddScoped<TaskService>();
 builder.Services.AddScoped<LLMProviderService>();
 builder.Services.AddScoped<TemplateService>();
+builder.Services.AddScoped<SkillService>();
+builder.Services.AddScoped<EvaluationService>();
 builder.Services.AddScoped<SwarmService>();
 builder.Services.AddScoped<SelfLearningService>();
+builder.Services.AddScoped<ScheduleService>();
 builder.Services.AddScoped<DynamicSpawnService>();
 builder.Services.AddScoped<MCPService>();
+builder.Services.AddScoped<HermesOpenClawExecutionService>();
 builder.Services.AddHostedService<AgentSchedulerService>();
+builder.Services.AddHostedService<HermesOpenClawSyncService>();
 builder.Services.AddScoped<MemoryService>();
 builder.Services.AddScoped<LLMExecutionService>();
 builder.Services.AddScoped<LogService>();

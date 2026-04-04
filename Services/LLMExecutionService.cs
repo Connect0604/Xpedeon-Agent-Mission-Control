@@ -18,11 +18,12 @@ public class LLMResult
     public decimal CostUSD { get; set; }
     public string ModelUsed { get; set; } = string.Empty;
     public double ConfidenceScore { get; set; } = 1.0;
+    public int ToolCallsUsed { get; set; }
 }
 
 public class LLMExecutionService
 {
-    private const int MaxMcpIterations = 4;
+    private const int DefaultMaxMcpIterations = 4;
     private readonly IHttpClientFactory _httpFactory;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly MCPService _mcpService;
@@ -46,6 +47,20 @@ public class LLMExecutionService
         if (provider == null)
             throw new InvalidOperationException("Agent has no LLM provider configured.");
 
+        var activeSkills = agent.Skills
+            .Where(s => s.IsEnabled && s.SkillDefinition is { IsEnabled: true })
+            .ToList();
+        var allowedToolNames = activeSkills
+            .SelectMany(s => SkillService.ParseAllowedToolNames(s.SkillDefinition!))
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var maxToolCalls = activeSkills
+            .Where(s => s.SkillDefinition?.MaxToolCalls is > 0)
+            .Select(s => s.SkillDefinition!.MaxToolCalls!.Value)
+            .DefaultIfEmpty(DefaultMaxMcpIterations)
+            .Min();
+
         var assignedMcp = agent.MCPServers
             .Where(m => m.IsEnabled && m.MCPServer is { IsEnabled: true })
             .Select(m => m.MCPServer!)
@@ -62,13 +77,25 @@ public class LLMExecutionService
             ? await _mcpService.ListToolsAsync(allMcp, cancellationToken)
             : new List<MCPToolInfo>();
 
-        var effectiveSystemPrompt = BuildEffectiveSystemPrompt(systemPrompt, allMcp, discoveredTools);
+        if (allowedToolNames.Any())
+        {
+            discoveredTools = discoveredTools
+                .Where(t => allowedToolNames.Contains(t.Name))
+                .ToList();
+        }
+
+        var effectiveSystemPrompt = BuildEffectiveSystemPrompt(systemPrompt, activeSkills, allMcp, discoveredTools);
         var currentInput = userInput;
         var aggregatedToolResults = new List<MCPToolCallResult>();
         var traceParts = new List<string>();
         LLMResult? latestResult = null;
 
-        for (var iteration = 1; iteration <= MaxMcpIterations; iteration++)
+        if (activeSkills.Any())
+        {
+            traceParts.Add($"Active skills: {string.Join(", ", activeSkills.Select(s => s.SkillDefinition?.Name).Where(n => !string.IsNullOrWhiteSpace(n)))}");
+        }
+
+        for (var iteration = 1; iteration <= maxToolCalls; iteration++)
         {
             var iterationPrompt = iteration == 1
                 ? effectiveSystemPrompt
@@ -81,6 +108,7 @@ public class LLMExecutionService
             if (!requestedCalls.Any())
             {
                 latestResult.Trace = string.Join(Environment.NewLine, traceParts);
+                latestResult.ToolCallsUsed = aggregatedToolResults.Count;
                 return latestResult;
             }
 
@@ -127,8 +155,9 @@ public class LLMExecutionService
         if (latestResult == null)
             throw new InvalidOperationException("LLM execution did not produce a result.");
 
-        latestResult.Output = $"{StripFunctionCalls(latestResult.Output)}\n\n[MCP tool loop stopped after {MaxMcpIterations} iterations.]".Trim();
+        latestResult.Output = $"{StripFunctionCalls(latestResult.Output)}\n\n[MCP tool loop stopped after {maxToolCalls} iterations.]".Trim();
         latestResult.Trace = string.Join(Environment.NewLine, traceParts);
+        latestResult.ToolCallsUsed = aggregatedToolResults.Count;
         return latestResult;
     }
 
@@ -350,31 +379,63 @@ public class LLMExecutionService
         return (promptTokens / 1_000_000m * inputPer1M) + (completionTokens / 1_000_000m * outputPer1M);
     }
 
-    private static string BuildEffectiveSystemPrompt(string systemPrompt, IReadOnlyCollection<MCPServer> servers, IReadOnlyCollection<MCPToolInfo> tools)
+    private static string BuildEffectiveSystemPrompt(
+        string systemPrompt,
+        IReadOnlyCollection<AgentSkillAssignment> skills,
+        IReadOnlyCollection<MCPServer> servers,
+        IReadOnlyCollection<MCPToolInfo> tools)
     {
-        if (!servers.Any())
+        if (!servers.Any() && !skills.Any())
             return systemPrompt;
 
         var builder = new StringBuilder(systemPrompt.Trim());
-        builder.AppendLine();
-        builder.AppendLine();
-        builder.AppendLine("Available MCP servers:");
 
-        foreach (var server in servers)
+        if (skills.Any())
         {
-            builder.Append("- ");
-            builder.Append(server.Name);
-            builder.Append(" [");
-            builder.Append(server.TransportType);
-            builder.Append("] ");
-            if (!string.IsNullOrWhiteSpace(server.Description))
-            {
-                builder.Append(server.Description.Trim());
-                builder.Append(" ");
-            }
-            builder.Append("Endpoint: ");
-            builder.Append(server.Endpoint);
             builder.AppendLine();
+            builder.AppendLine();
+            builder.AppendLine("Active skills:");
+            foreach (var skill in skills.Where(s => s.SkillDefinition != null))
+            {
+                builder.Append("- ");
+                builder.Append(skill.SkillDefinition!.Name);
+                if (!string.IsNullOrWhiteSpace(skill.SkillDefinition.Description))
+                {
+                    builder.Append(": ");
+                    builder.Append(skill.SkillDefinition.Description.Trim());
+                }
+                builder.AppendLine();
+
+                if (!string.IsNullOrWhiteSpace(skill.SkillDefinition.PromptSnippet))
+                {
+                    builder.Append("  Guidance: ");
+                    builder.AppendLine(skill.SkillDefinition.PromptSnippet.Trim());
+                }
+            }
+        }
+
+        if (servers.Any())
+        {
+            builder.AppendLine();
+            builder.AppendLine();
+            builder.AppendLine("Available MCP servers:");
+
+            foreach (var server in servers)
+            {
+                builder.Append("- ");
+                builder.Append(server.Name);
+                builder.Append(" [");
+                builder.Append(server.TransportType);
+                builder.Append("] ");
+                if (!string.IsNullOrWhiteSpace(server.Description))
+                {
+                    builder.Append(server.Description.Trim());
+                    builder.Append(" ");
+                }
+                builder.Append("Endpoint: ");
+                builder.Append(server.Endpoint);
+                builder.AppendLine();
+            }
         }
 
         if (tools.Any())
@@ -457,9 +518,6 @@ public class LLMExecutionService
 
     private async Task<List<MCPServer>> GetGlobalMcpServersAsync(string? agentId, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(agentId))
-            return new List<MCPServer>();
-
         await using var db = _dbFactory.CreateDbContext();
         return await db.MCPServers
             .Where(s => s.IsEnabled && s.IsGlobal)

@@ -1,0 +1,442 @@
+@page "/evaluations"
+@rendermode InteractiveServer
+@using System.Text.Json
+@inject EvaluationService EvaluationService
+@inject AgentService AgentService
+@inject LLMProviderService ProviderService
+@inject SkillService SkillService
+
+<PageTitle>Evaluations - Xpedeon AMC</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Agent Evaluation Bench</h1>
+        <p class="page-subtitle">Compare providers, prompts, and capability skills against the same task input.</p>
+    </div>
+    <div style="display:flex;gap:var(--s2);">
+        <button class="btn btn-ghost" @onclick="CreateNewScenario">
+            <i class="bi bi-plus-circle"></i> New Scenario
+        </button>
+        @if (selectedScenario != null)
+        {
+            <button class="btn btn-primary" @onclick="RunScenario" disabled="@isRunningScenario">
+                <i class="bi bi-play-fill"></i> @(isRunningScenario ? "Running..." : "Run Comparison")
+            </button>
+        }
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(errorMsg))
+{
+    <div class="alert alert-error mb-4">@errorMsg</div>
+}
+
+<div class="task-workspace">
+    <div class="task-list-pane">
+        <div class="task-list-pane__header">
+            <div class="section-head"><i class="bi bi-bezier2"></i> Saved Scenarios</div>
+            <span class="text-xs text-muted">@scenarios.Count items</span>
+        </div>
+
+        <div class="task-list">
+            @foreach (var scenario in scenarios)
+            {
+                <div class="task-card @(selectedScenario?.Id == scenario.Id ? "task-card--selected" : "")"
+                     @onclick="() => SelectScenario(scenario)">
+                    <div class="task-card__header">
+                        @if (scenario.IsPinned)
+                        {
+                            <span class="badge badge-accent"><i class="bi bi-pin-angle-fill"></i> Pinned</span>
+                        }
+                        <span class="text-sm font-medium text-primary">@scenario.Name</span>
+                        <span class="text-xs text-muted ml-auto">@(scenario.LastRunAt?.ToString("dd MMM HH:mm") ?? "Never run")</span>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(scenario.Description))
+                    {
+                        <div class="task-output-preview mt-2">@scenario.Description</div>
+                    }
+                    <div class="task-meta mt-2">
+                        <span><i class="bi bi-robot"></i> @(scenario.BaseAgent?.Name ?? "No base agent")</span>
+                        <span><i class="bi bi-list-check"></i> @CountJsonItems(scenario.SelectedSkillIdsJson) skills</span>
+                        <span><i class="bi bi-cpu"></i> @CountJsonItems(scenario.SelectedProviderIdsJson) providers</span>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="card card-pad task-detail-panel">
+        @if (selectedScenario == null)
+        {
+            <div class="task-detail-empty">
+                <div class="empty-icon"><i class="bi bi-bezier2"></i></div>
+                <div class="empty-title">Select or Create a Scenario</div>
+                <div class="empty-desc">Use the evaluation bench to compare providers, prompts, and skills against the same task.</div>
+            </div>
+        }
+        else
+        {
+            <div class="eval-workbench">
+                <div class="eval-toolbar">
+                    <div>
+                        <h3 class="section-title">@selectedScenario.Name</h3>
+                        <p class="text-muted text-sm">Saved comparison scenario with reproducible inputs and runtime choices.</p>
+                    </div>
+                    <div style="display:flex;gap:var(--s2);flex-wrap:wrap;">
+                        <button class="btn btn-ghost btn-sm" @onclick="SaveScenario" disabled="@isSavingScenario">
+                            <i class="bi bi-floppy"></i> @(isSavingScenario ? "Saving..." : "Save")
+                        </button>
+                        <button class="btn btn-ghost btn-sm text-error" @onclick="DeleteScenario" disabled="@isDeletingScenario">
+                            <i class="bi bi-trash"></i> @(isDeletingScenario ? "Deleting..." : "Delete")
+                        </button>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Scenario Name</label>
+                        <input class="form-input" @bind="selectedScenario.Name" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Base Agent</label>
+                        <select class="form-input" @bind="selectedScenario.BaseAgentId">
+                            <option value="">None</option>
+                            @foreach (var agent in agents)
+                            {
+                                <option value="@agent.Id">@agent.Name</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <textarea class="form-input" rows="2" @bind="selectedScenario.Description" placeholder="What are you trying to compare?"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Task Name</label>
+                    <input class="form-input" @bind="selectedScenario.TaskName" placeholder="e.g. Schema lookup benchmark" />
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Shared Input</label>
+                    <textarea class="form-input prompt-editor" rows="6" @bind="selectedScenario.Input" placeholder="The same user request will be sent to every selected provider."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Prompt Override <span class="text-muted text-xs">(optional)</span></label>
+                    <textarea class="form-input prompt-editor" rows="5" @bind="selectedScenario.PromptOverride" placeholder="Leave blank to inherit the base agent's system prompt."></textarea>
+                </div>
+
+                <div class="card card-pad mt-4">
+                    <div class="section-head"><i class="bi bi-cpu"></i> Providers Under Test</div>
+                    <div class="skill-pick-grid mt-3">
+                        @foreach (var provider in providers.Where(p => p.IsEnabled))
+                        {
+                            <div class="skill-pick-card @(selectedProviderIds.Contains(provider.Id) ? "skill-pick-card--selected" : "")"
+                                 @onclick="() => ToggleProvider(provider.Id)">
+                                <div class="flex items-start gap-3">
+                                    <div class="provider-icon provider-icon--custom">
+                                        <i class="bi bi-cpu"></i>
+                                    </div>
+                                    <div style="flex:1;">
+                                        <div class="text-sm font-medium">@provider.Name</div>
+                                        <div class="text-xs text-muted mt-1 font-mono">@provider.ModelName</div>
+                                    </div>
+                                    @if (selectedProviderIds.Contains(provider.Id))
+                                    {
+                                        <i class="bi bi-check-circle-fill text-accent"></i>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="card card-pad mt-4">
+                    <div class="section-head"><i class="bi bi-stars"></i> Active Skills</div>
+                    <div class="skill-pick-grid mt-3">
+                        @foreach (var skill in skills)
+                        {
+                            <div class="skill-pick-card @(selectedSkillIds.Contains(skill.Id) ? "skill-pick-card--selected" : "")"
+                                 @onclick="() => ToggleSkill(skill.Id)">
+                                <div class="flex items-start gap-3">
+                                    <div class="provider-icon provider-icon--custom">
+                                        <i class="bi bi-stars"></i>
+                                    </div>
+                                    <div style="flex:1;">
+                                        <div class="text-sm font-medium">@skill.Name</div>
+                                        <div class="text-xs text-muted mt-1">@skill.Description</div>
+                                    </div>
+                                    @if (selectedSkillIds.Contains(skill.Id))
+                                    {
+                                        <i class="bi bi-check-circle-fill text-accent"></i>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="card card-pad mt-4">
+                    <div class="section-head"><i class="bi bi-bar-chart-line"></i> Latest Results</div>
+                    @if (!latestRuns.Any())
+                    {
+                        <div class="text-sm text-muted mt-3">Run this scenario to populate provider comparisons.</div>
+                    }
+                    else
+                    {
+                        <div class="eval-grid mt-3">
+                            @foreach (var run in latestRuns)
+                            {
+                                <div class="eval-card @(run.Status == EvaluationRunStatus.Failed ? "eval-card--failed" : "")">
+                                    <div class="eval-card__head">
+                                        <div>
+                                            <div class="text-sm font-medium">@run.ProviderName</div>
+                                            <div class="text-xs text-muted font-mono mt-1">@run.ModelName</div>
+                                        </div>
+                                        <span class="badge @(run.Status == EvaluationRunStatus.Completed ? "badge-success" : "badge-error")">
+                                            @run.Status
+                                        </span>
+                                    </div>
+
+                                    <div class="token-stats mt-3">
+                                        <div class="token-stat">
+                                            <span class="text-muted text-xs">Latency</span>
+                                            <span>@run.DurationMs ms</span>
+                                        </div>
+                                        <div class="token-stat">
+                                            <span class="text-muted text-xs">Tokens</span>
+                                            <span>@run.TotalTokens</span>
+                                        </div>
+                                        <div class="token-stat">
+                                            <span class="text-muted text-xs">Cost</span>
+                                            <span>$@run.CostUSD.ToString("F6")</span>
+                                        </div>
+                                        <div class="token-stat">
+                                            <span class="text-muted text-xs">MCP Calls</span>
+                                            <span>@run.ToolCallsUsed</span>
+                                        </div>
+                                    </div>
+
+                                    @if (!string.IsNullOrWhiteSpace(run.SkillNamesJson))
+                                    {
+                                        <div class="mt-3">
+                                            <label class="form-label text-xs text-muted">Skills</label>
+                                            <div style="display:flex;flex-wrap:wrap;gap:var(--s2);">
+                                                @foreach (var skillName in ParseStringList(run.SkillNamesJson))
+                                                {
+                                                    <span class="tag">@skillName</span>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+
+                                    <div class="form-group mt-3">
+                                        <label class="form-label text-xs text-muted">Output</label>
+                                        <div class="output-box @(run.Status == EvaluationRunStatus.Completed ? "output-box--success" : "output-box--error")">
+                                            @(run.Status == EvaluationRunStatus.Completed ? run.Output : run.ErrorMessage)
+                                        </div>
+                                    </div>
+
+                                    @if (!string.IsNullOrWhiteSpace(run.ExecutionTrace))
+                                    {
+                                        <div class="form-group mt-3">
+                                            <label class="form-label text-xs text-muted">Execution Trace</label>
+                                            <div class="output-box font-mono text-xs">@run.ExecutionTrace</div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<EvaluationScenario> scenarios = new();
+    private List<Agent> agents = new();
+    private List<LLMProvider> providers = new();
+    private List<SkillDefinition> skills = new();
+    private List<EvaluationRun> latestRuns = new();
+    private EvaluationScenario? selectedScenario;
+    private HashSet<string> selectedProviderIds = new();
+    private HashSet<string> selectedSkillIds = new();
+    private bool isSavingScenario;
+    private bool isRunningScenario;
+    private bool isDeletingScenario;
+    private string errorMsg = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        if (selectedScenario == null)
+        {
+            CreateNewScenario();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        scenarios = await EvaluationService.GetScenariosAsync();
+        agents = await AgentService.GetAllAsync();
+        providers = await ProviderService.GetAllAsync();
+        skills = await SkillService.GetAllAsync();
+
+        if (selectedScenario != null)
+        {
+            var reloadedScenario = scenarios.FirstOrDefault(s => s.Id == selectedScenario.Id);
+            if (reloadedScenario != null)
+            {
+                await SelectScenario(reloadedScenario);
+            }
+        }
+    }
+
+    private void CreateNewScenario()
+    {
+        selectedScenario = new EvaluationScenario
+        {
+            Name = "New Evaluation Scenario",
+            Description = string.Empty,
+            TaskName = "Benchmark Task",
+            Input = string.Empty,
+            PromptOverride = string.Empty,
+            IsPinned = false
+        };
+        selectedProviderIds = new HashSet<string>();
+        selectedSkillIds = new HashSet<string>();
+        latestRuns = new List<EvaluationRun>();
+        errorMsg = string.Empty;
+    }
+
+    private async Task SelectScenario(EvaluationScenario scenario)
+    {
+        selectedScenario = await EvaluationService.GetScenarioAsync(scenario.Id) ?? scenario;
+        selectedProviderIds = ParseStringList(selectedScenario.SelectedProviderIdsJson).ToHashSet();
+        selectedSkillIds = ParseStringList(selectedScenario.SelectedSkillIdsJson).ToHashSet();
+        latestRuns = await EvaluationService.GetRunsForScenarioAsync(selectedScenario.Id);
+        errorMsg = string.Empty;
+    }
+
+    private void ToggleProvider(string providerId)
+    {
+        if (!selectedProviderIds.Remove(providerId))
+            selectedProviderIds.Add(providerId);
+    }
+
+    private void ToggleSkill(string skillId)
+    {
+        if (!selectedSkillIds.Remove(skillId))
+            selectedSkillIds.Add(skillId);
+    }
+
+    private async Task SaveScenario()
+    {
+        if (selectedScenario == null)
+            return;
+
+        if (string.IsNullOrWhiteSpace(selectedScenario.Name))
+        {
+            errorMsg = "Scenario name is required.";
+            return;
+        }
+
+        if (!selectedProviderIds.Any())
+        {
+            errorMsg = "Select at least one provider for comparison.";
+            return;
+        }
+
+        isSavingScenario = true;
+        errorMsg = string.Empty;
+        try
+        {
+            selectedScenario.SelectedProviderIdsJson = JsonSerializer.Serialize(selectedProviderIds.ToList());
+            selectedScenario.SelectedSkillIdsJson = JsonSerializer.Serialize(selectedSkillIds.ToList());
+            selectedScenario = await EvaluationService.SaveScenarioAsync(selectedScenario);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMsg = ex.Message;
+        }
+        finally
+        {
+            isSavingScenario = false;
+        }
+    }
+
+    private async Task RunScenario()
+    {
+        if (selectedScenario == null)
+            return;
+
+        await SaveScenario();
+        if (!string.IsNullOrWhiteSpace(errorMsg))
+            return;
+
+        isRunningScenario = true;
+        try
+        {
+            latestRuns = await EvaluationService.RunScenarioAsync(selectedScenario.Id);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMsg = ex.Message;
+        }
+        finally
+        {
+            isRunningScenario = false;
+        }
+    }
+
+    private async Task DeleteScenario()
+    {
+        if (selectedScenario == null || string.IsNullOrWhiteSpace(selectedScenario.Id))
+        {
+            CreateNewScenario();
+            return;
+        }
+
+        isDeletingScenario = true;
+        try
+        {
+            await EvaluationService.DeleteScenarioAsync(selectedScenario.Id);
+            selectedScenario = null;
+            latestRuns = new List<EvaluationRun>();
+            await LoadAsync();
+            CreateNewScenario();
+        }
+        catch (Exception ex)
+        {
+            errorMsg = ex.Message;
+        }
+        finally
+        {
+            isDeletingScenario = false;
+        }
+    }
+
+    private static int CountJsonItems(string json) => ParseStringList(json).Count;
+
+    private static List<string> ParseStringList(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return new List<string>();
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
+        }
+        catch
+        {
+            return new List<string>();
+        }
+    }
+}
