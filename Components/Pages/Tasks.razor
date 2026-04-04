@@ -1,5 +1,6 @@
-@page "/tasks"
+﻿@page "/tasks"
 @rendermode InteractiveServer
+@using System.Text.Json
 @inject TaskService TaskService
 @inject MockDataService DataService
 @inject RealtimeService RealtimeService
@@ -44,13 +45,16 @@
             <div class="approval-row">
                 <div>
                     <span class="text-sm font-medium text-primary">@t.Name</span>
-                    <span class="text-xs text-muted ml-2">� @t.AgentName</span>
+                    <span class="text-xs text-muted ml-2">· @t.AgentName</span>
                     @if (!string.IsNullOrWhiteSpace(t.Input))
                     {
                         <div class="text-xs text-muted font-mono mt-1">@t.Input[..Math.Min(100, t.Input.Length)]@(t.Input.Length > 100 ? "..." : "")</div>
                     }
                 </div>
                 <div style="display:flex;gap:var(--s2);flex-shrink:0;">
+                    <button class="btn btn-sm btn-ghost" @onclick="() => ReviewPendingTask(t)">
+                        <i class="bi bi-eye"></i> Review
+                    </button>
                     <button class="btn btn-sm btn-ghost text-error" @onclick="() => CancelTask(t.Id)">
                         <i class="bi bi-x-lg"></i> Reject
                     </button>
@@ -121,11 +125,19 @@ else
                     <div>
                         <h3 class="section-title">@selectedTask.Name</h3>
                         <p class="text-muted text-sm">
-                            @selectedTask.AgentName �
+                            @selectedTask.AgentName ·
                             <a href="/agents/@selectedTask.AgentId" class="text-accent">View Agent</a>
                         </p>
                     </div>
-                    <button class="btn btn-ghost btn-sm task-detail-close" @onclick="() => selectedTask = null"><i class="bi bi-x-lg"></i></button>
+                    <div style="display:flex;gap:var(--s2);align-items:center;">
+                        @if (selectedTask.Status != AgentTaskStatus.Running && selectedTask.Status != AgentTaskStatus.PendingApproval)
+                        {
+                            <button class="btn btn-ghost btn-sm" @onclick="() => ReplayTask(selectedTask)" disabled="@isReplaying">
+                                <i class="bi bi-arrow-repeat"></i> @(isReplaying ? "Replaying..." : "Replay")
+                            </button>
+                        }
+                        <button class="btn btn-ghost btn-sm task-detail-close" @onclick="() => selectedTask = null"><i class="bi bi-x-lg"></i></button>
+                    </div>
                 </div>
 
                 @if (!string.IsNullOrWhiteSpace(selectedTask.Input))
@@ -157,6 +169,83 @@ else
                     <div class="form-group">
                         <label class="form-label text-xs text-muted">Execution Trace</label>
                         <div class="output-box font-mono text-xs">@selectedTask.ExecutionTrace</div>
+                    </div>
+                }
+
+                @if (selectedTask.ExecutionBackendSnapshot == ExecutionBackend.HermesOpenClaw || !string.IsNullOrWhiteSpace(selectedTask.ExternalRunId))
+                {
+                    <div class="token-stats">
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Backend</span>
+                            <span>@selectedTask.ExecutionBackendSnapshot</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">External Status</span>
+                            <span>@selectedTask.ExternalStatus</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">External Run</span>
+                            <span class="font-mono">@(selectedTask.ExternalRunId ?? "Not submitted")</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Last Sync</span>
+                            <span>@(selectedTask.ExternalLastSyncedAt?.ToLocalTime().ToString("dd MMM HH:mm:ss") ?? "—")</span>
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(selectedTask.ExternalTrace))
+                    {
+                        <div class="form-group mt-4">
+                            <label class="form-label text-xs text-muted">External Trace</label>
+                            <div class="output-box font-mono text-xs">@selectedTask.ExternalTrace</div>
+                        </div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(selectedTask.ExternalError))
+                    {
+                        <div class="form-group">
+                            <label class="form-label text-xs text-muted">External Error</label>
+                            <div class="output-box output-box--error">@selectedTask.ExternalError</div>
+                        </div>
+                    }
+                }
+
+                @if (selectedTask.Status == AgentTaskStatus.PendingApproval)
+                {
+                    <div class="form-group">
+                        <label class="form-label text-xs text-muted">Approval Evidence</label>
+                        <div class="output-box">@(string.IsNullOrWhiteSpace(selectedTask.ApprovalEvidence) ? "No evidence captured." : selectedTask.ApprovalEvidence)</div>
+                    </div>
+
+                    <div class="token-stats">
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Provider</span>
+                            <span class="font-mono">@(selectedTask.ProviderSnapshotName ?? "Unassigned")</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Model</span>
+                            <span class="font-mono">@(selectedTask.ProviderSnapshotModel ?? "Unassigned")</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Skills</span>
+                            <span>@(GetSnapshotNames(selectedTask.SkillSnapshotJson).Any() ? string.Join(", ", GetSnapshotNames(selectedTask.SkillSnapshotJson)) : "None")</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">MCP</span>
+                            <span>@(GetSnapshotNames(selectedTask.MCPServerSnapshotJson).Any() ? string.Join(", ", GetSnapshotNames(selectedTask.MCPServerSnapshotJson)) : "None")</span>
+                        </div>
+                    </div>
+
+                    <div class="form-group mt-4">
+                        <label class="form-label text-xs text-muted">Approval Comment</label>
+                        <textarea class="form-input" rows="3" @bind="approvalCommentDraft" placeholder="Optional reviewer comment..."></textarea>
+                    </div>
+
+                    <div class="feedback-row mt-3">
+                        <button class="btn btn-ghost btn-sm text-error" @onclick="() => CancelTask(selectedTask.Id, approvalCommentDraft)">
+                            <i class="bi bi-x-lg"></i> Reject
+                        </button>
+                        <button class="btn btn-primary btn-sm" @onclick="() => ApproveTask(selectedTask.Id, approvalCommentDraft)">
+                            <i class="bi bi-check-lg"></i> Approve
+                        </button>
                     </div>
                 }
 
@@ -221,6 +310,8 @@ else
     private string activeTab = "all";
     private string searchQuery = "";
     private TaskPriority? prioFilter;
+    private string approvalCommentDraft = "";
+    private bool isReplaying;
     private Timer? _timer;
 
     private record TabDef(string key, string label);
@@ -228,6 +319,7 @@ else
     {
         new("all",       "All"),
         new("running",   "Running"),
+        new("scheduled", "Scheduled"),
         new("pending",   "Pending Approval"),
         new("queued",    "Queued"),
         new("completed", "Completed"),
@@ -252,6 +344,9 @@ else
             selectedTask = allTasks.FirstOrDefault(t => t.Id == selectedTask.Id) ?? selectedTask;
         else if (filtered.Any())
             selectedTask = filtered.First();
+
+        if (selectedTask != null)
+            approvalCommentDraft = selectedTask.ApprovalComment ?? approvalCommentDraft;
     }
 
     private void ApplyFilter()
@@ -260,6 +355,7 @@ else
         q = activeTab switch
         {
             "running"   => q.Where(t => t.Status == AgentTaskStatus.Running),
+            "scheduled" => q.Where(t => t.TriggerSource == TriggerSource.Scheduled),
             "pending"   => q.Where(t => t.Status == AgentTaskStatus.PendingApproval),
             "queued"    => q.Where(t => t.Status == AgentTaskStatus.Queued),
             "completed" => q.Where(t => t.Status == AgentTaskStatus.Completed),
@@ -276,6 +372,7 @@ else
     private int CountFor(string tab) => tab switch
     {
         "running"   => allTasks.Count(t => t.Status == AgentTaskStatus.Running),
+        "scheduled" => allTasks.Count(t => t.TriggerSource == TriggerSource.Scheduled),
         "pending"   => allTasks.Count(t => t.Status == AgentTaskStatus.PendingApproval),
         "queued"    => allTasks.Count(t => t.Status == AgentTaskStatus.Queued),
         "completed" => allTasks.Count(t => t.Status == AgentTaskStatus.Completed),
@@ -301,11 +398,22 @@ else
             selectedTask = null;
     }
 
-    private void SelectTask(AgentTask task) => selectedTask = selectedTask?.Id == task.Id ? null : task;
+    private void SelectTask(AgentTask task)
+    {
+        selectedTask = selectedTask?.Id == task.Id ? null : task;
+        approvalCommentDraft = selectedTask?.ApprovalComment ?? "";
+    }
 
     private async Task ApproveTask(string id)
     {
         await TaskService.ApproveTaskAsync(id);
+        await LoadAsync();
+    }
+
+    private async Task ApproveTask(string id, string? approvalComment)
+    {
+        await TaskService.ApproveTaskAsync(id, approvalComment);
+        approvalCommentDraft = "";
         await LoadAsync();
     }
 
@@ -315,10 +423,58 @@ else
         await LoadAsync();
     }
 
+    private async Task CancelTask(string id, string? approvalComment)
+    {
+        await TaskService.CancelTaskAsync(id, approvalComment);
+        approvalCommentDraft = "";
+        await LoadAsync();
+    }
+
     private async Task SubmitFeedback(AgentTask task, int rating)
     {
         await TaskService.SubmitFeedbackAsync(task.Id, rating, null, null);
         await LoadAsync();
+    }
+
+    private async Task ReplayTask(AgentTask task)
+    {
+        isReplaying = true;
+        try
+        {
+            var replayedTask = await TaskService.ReplayTaskAsync(task.Id);
+            await LoadAsync();
+            selectedTask = allTasks.FirstOrDefault(t => t.Id == replayedTask.Id) ?? replayedTask;
+        }
+        finally
+        {
+            isReplaying = false;
+        }
+    }
+
+    private void ReviewPendingTask(AgentTask task)
+    {
+        activeTab = "pending";
+        ApplyFilter();
+        selectedTask = task;
+        approvalCommentDraft = task.ApprovalComment ?? "";
+    }
+
+    private static List<string> GetSnapshotNames(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return new List<string>();
+
+        try
+        {
+            return (JsonSerializer.Deserialize<List<SnapshotName>>(json) ?? new List<SnapshotName>())
+                .Where(x => !string.IsNullOrWhiteSpace(x.Name))
+                .Select(x => x.Name!)
+                .ToList();
+        }
+        catch
+        {
+            return new List<string>();
+        }
     }
 
     private static string RelTime(DateTime dt)
@@ -343,5 +499,11 @@ else
     {
         _timer?.Dispose();
         RealtimeService.RefreshRequested -= HandleRealtimeChange;
+    }
+
+    private sealed class SnapshotName
+    {
+        public string? Id { get; set; }
+        public string? Name { get; set; }
     }
 }

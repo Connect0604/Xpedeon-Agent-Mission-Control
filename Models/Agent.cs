@@ -6,6 +6,8 @@ public enum AgentType { DataSync, Reporting, Integration, Notification, Processi
 
 public enum TriggerType { Manual, Scheduled, Event, Swarm }
 
+public enum ExecutionBackend { Local, HermesOpenClaw }
+
 public class Agent
 {
     public string Id { get; set; } = string.Empty;
@@ -18,6 +20,7 @@ public class Agent
     public string? LLMProviderId { get; set; }
     public LLMProvider? LLMProvider { get; set; }
     public string SystemPrompt { get; set; } = string.Empty;
+    public ExecutionBackend ExecutionBackend { get; set; } = ExecutionBackend.Local;
 
     // Swarm
     public string? SwarmId { get; set; }
@@ -82,6 +85,7 @@ public class Agent
 
     // Navigation
     public List<AgentTool> Tools { get; set; } = new();
+    public List<AgentSkillAssignment> Skills { get; set; } = new();
     public List<AgentMCPServer> MCPServers { get; set; } = new();
     public List<AgentTask> Tasks { get; set; } = new();
     public List<AgentMemory> Memories { get; set; } = new();

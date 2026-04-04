@@ -1983,6 +1983,153 @@ body::before {
     font-size: .85rem; font-weight: 600; color: var(--txt-primary); margin-bottom: var(--s3);
 }
 
+/* ── Skills + Evaluations ───────────────────────────────────────── */
+.skill-pick-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--s3);
+}
+
+.skill-pick-card {
+    padding: var(--s4);
+    border-radius: var(--r-lg);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-elevated);
+    cursor: pointer;
+    transition: border-color var(--ease), background var(--ease), transform var(--ease);
+}
+
+.skill-pick-card:hover {
+    border-color: var(--accent-border);
+    transform: translateY(-2px);
+}
+
+.skill-pick-card--selected {
+    border-color: var(--accent);
+    background: var(--accent-glow);
+    box-shadow: 0 0 0 1px var(--accent-border);
+}
+
+.eval-workbench {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s4);
+}
+
+.eval-toolbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--s3);
+    flex-wrap: wrap;
+}
+
+.eval-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: var(--s4);
+}
+
+.eval-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--r-xl);
+    padding: var(--s4);
+    box-shadow: var(--shadow-sm);
+}
+
+.eval-card--failed {
+    border-color: var(--c-error-border);
+}
+
+.eval-card__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--s3);
+}
+
+.schedule-list,
+.schedule-task-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s3);
+    margin-top: var(--s4);
+}
+
+.schedule-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(260px, .9fr) auto;
+    gap: var(--s4);
+    align-items: start;
+    padding: var(--s4);
+    border-radius: var(--r-lg);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-elevated);
+}
+
+.schedule-row--disabled {
+    opacity: .72;
+}
+
+.schedule-row__title {
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
+    flex-wrap: wrap;
+}
+
+.schedule-row__meta {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s3);
+}
+
+.schedule-row__meta > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: .85rem;
+    color: var(--txt-primary);
+}
+
+.schedule-row__actions {
+    display: flex;
+    gap: var(--s2);
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.schedule-task-item {
+    padding: var(--s4);
+    border-radius: var(--r-lg);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-elevated);
+    cursor: pointer;
+    transition: transform var(--ease), border-color var(--ease);
+}
+
+.schedule-task-item:hover {
+    transform: translateY(-2px);
+    border-color: var(--border-default);
+}
+
+.schedule-task-item__title {
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
+    flex-wrap: wrap;
+}
+
+.schedule-task-item__meta {
+    display: flex;
+    gap: var(--s3);
+    flex-wrap: wrap;
+    margin-top: var(--s2);
+    font-size: .75rem;
+    color: var(--txt-muted);
+}
+
 /* ── Responsive additions ────────────────────────────────────────── */
 @media (max-width: 900px) { .learning-kpi-row { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 540px) { .learning-kpi-row { grid-template-columns: repeat(2, 1fr); } }
@@ -1990,6 +2137,10 @@ body::before {
     .refinement-diff-row { grid-template-columns: 1fr; }
     .swarm-grid { grid-template-columns: 1fr; }
     .mcp-grid   { grid-template-columns: 1fr; }
+    .eval-grid { grid-template-columns: 1fr; }
+    .schedule-row { grid-template-columns: 1fr; }
+    .schedule-row__meta { grid-template-columns: 1fr 1fr; }
+    .schedule-row__actions { justify-content: flex-start; }
 }
 
 /* ================================================================

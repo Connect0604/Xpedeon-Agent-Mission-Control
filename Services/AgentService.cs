@@ -22,6 +22,7 @@ public class AgentService
             .Include(a => a.LLMProvider)
             .Include(a => a.Swarm)
             .Include(a => a.Tools)
+            .Include(a => a.Skills).ThenInclude(s => s.SkillDefinition)
             .Include(a => a.MCPServers).ThenInclude(m => m.MCPServer)
             .Include(a => a.Schedule)
             .OrderByDescending(a => a.CreatedAt)
@@ -35,6 +36,7 @@ public class AgentService
             .Include(a => a.LLMProvider)
             .Include(a => a.Swarm)
             .Include(a => a.Tools)
+            .Include(a => a.Skills).ThenInclude(s => s.SkillDefinition)
             .Include(a => a.MCPServers).ThenInclude(m => m.MCPServer)
             .Include(a => a.Schedule)
             .Include(a => a.PromptHistory.OrderByDescending(p => p.Version).Take(10))
@@ -129,9 +131,31 @@ public class AgentService
     public async Task DeleteAsync(string id)
     {
         await using var db = _factory.CreateDbContext();
-        var agent = await db.Agents.FindAsync(id);
+        var agent = await db.Agents.FirstOrDefaultAsync(a => a.Id == id);
         if (agent != null)
         {
+            var tasks = await db.Tasks.Where(t => t.AgentId == id).ToListAsync();
+            var taskIds = tasks.Select(t => t.Id).ToList();
+            var memories = await db.AgentMemories.Where(m => m.AgentId == id).ToListAsync();
+            var promptHistory = await db.PromptHistories.Where(p => p.AgentId == id).ToListAsync();
+            var schedules = await db.AgentSchedules.Where(s => s.AgentId == id).ToListAsync();
+            var tools = await db.AgentTools.Where(t => t.AgentId == id).ToListAsync();
+            var mcpAssignments = await db.AgentMCPServers.Where(m => m.AgentId == id).ToListAsync();
+            var skillAssignments = await db.AgentSkillAssignments.Where(s => s.AgentId == id).ToListAsync();
+            var feedback = taskIds.Any()
+                ? await db.TaskFeedbacks.Where(f => taskIds.Contains(f.TaskId)).ToListAsync()
+                : new List<TaskFeedback>();
+            var logs = await db.Logs.Where(l => l.AgentId == id).ToListAsync();
+
+            if (feedback.Any()) db.TaskFeedbacks.RemoveRange(feedback);
+            if (logs.Any()) db.Logs.RemoveRange(logs);
+            if (tasks.Any()) db.Tasks.RemoveRange(tasks);
+            if (memories.Any()) db.AgentMemories.RemoveRange(memories);
+            if (promptHistory.Any()) db.PromptHistories.RemoveRange(promptHistory);
+            if (schedules.Any()) db.AgentSchedules.RemoveRange(schedules);
+            if (tools.Any()) db.AgentTools.RemoveRange(tools);
+            if (mcpAssignments.Any()) db.AgentMCPServers.RemoveRange(mcpAssignments);
+            if (skillAssignments.Any()) db.AgentSkillAssignments.RemoveRange(skillAssignments);
             db.Agents.Remove(agent);
             await db.SaveChangesAsync();
             await _realtime.AgentUpdatedAsync(id);

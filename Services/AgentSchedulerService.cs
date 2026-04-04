@@ -106,9 +106,12 @@ public class AgentSchedulerService : BackgroundService
         {
             if (!Matches(fields[1], candidate.Hour))   { candidate = candidate.AddHours(1).AddMinutes(-candidate.Minute); continue; }
             if (!Matches(fields[0], candidate.Minute)) { candidate = candidate.AddMinutes(1); continue; }
-            if (!Matches(fields[2], candidate.Day))    { candidate = candidate.AddDays(1).AddHours(-candidate.Hour).AddMinutes(-candidate.Minute); continue; }
+            if (!MatchesDayOfMonthAndWeek(fields[2], fields[4], candidate))
+            {
+                candidate = candidate.AddDays(1).AddHours(-candidate.Hour).AddMinutes(-candidate.Minute);
+                continue;
+            }
             if (!Matches(fields[3], candidate.Month))  { candidate = candidate.AddMonths(1).AddDays(-(candidate.Day - 1)).AddHours(-candidate.Hour).AddMinutes(-candidate.Minute); continue; }
-            if (!Matches(fields[4], (int)candidate.DayOfWeek)) { candidate = candidate.AddDays(1).AddHours(-candidate.Hour).AddMinutes(-candidate.Minute); continue; }
             return candidate;
         }
 
@@ -137,5 +140,24 @@ public class AgentSchedulerService : BackgroundService
         }
 
         return false;
+    }
+
+    private static bool MatchesDayOfMonthAndWeek(string dayOfMonthField, string dayOfWeekField, DateTime candidate)
+    {
+        var domWildcard = dayOfMonthField == "*";
+        var dowWildcard = dayOfWeekField == "*";
+        var domMatches = Matches(dayOfMonthField, candidate.Day);
+        var dowMatches = Matches(dayOfWeekField, (int)candidate.DayOfWeek);
+
+        if (domWildcard && dowWildcard)
+            return true;
+
+        if (domWildcard)
+            return dowMatches;
+
+        if (dowWildcard)
+            return domMatches;
+
+        return domMatches || dowMatches;
     }
 }

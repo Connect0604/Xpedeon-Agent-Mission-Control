@@ -6,6 +6,8 @@ public enum TaskPriority { Low, Medium, High, Critical }
 
 public enum TriggerSource { Manual, Scheduled, Event, Swarm, Chained }
 
+public enum ExternalRunStatus { None, Submitted, Running, Completed, Failed, Cancelled }
+
 public class AgentTask
 {
     public string Id { get; set; } = string.Empty;
@@ -22,6 +24,15 @@ public class AgentTask
     public string? Input { get; set; }
     public string? Output { get; set; }
     public string? SystemPromptSnapshot { get; set; }
+    public string? ProviderSnapshotId { get; set; }
+    public string? ProviderSnapshotName { get; set; }
+    public string? ProviderSnapshotModel { get; set; }
+    public string? SkillSnapshotJson { get; set; }
+    public string? MCPServerSnapshotJson { get; set; }
+    public string? ApprovalEvidence { get; set; }
+    public string? ApprovalComment { get; set; }
+    public string? ReplayOfTaskId { get; set; }
+    public ExecutionBackend ExecutionBackendSnapshot { get; set; } = ExecutionBackend.Local;
 
     // Execution trace
     public string? ExecutionTrace { get; set; }
@@ -30,6 +41,16 @@ public class AgentTask
     public int TotalTokens { get; set; }
     public decimal CostUSD { get; set; }
     public string? ModelUsed { get; set; }
+    public long DurationMs { get; set; }
+    public int ToolCallsUsed { get; set; }
+    public string? ExternalRunId { get; set; }
+    public string? ExternalBackend { get; set; }
+    public ExternalRunStatus ExternalStatus { get; set; } = ExternalRunStatus.None;
+    public DateTime? ExternalSubmittedAt { get; set; }
+    public DateTime? ExternalLastSyncedAt { get; set; }
+    public string? ExternalTrace { get; set; }
+    public string? ExternalResultJson { get; set; }
+    public string? ExternalError { get; set; }
 
     // Progress
     public DateTime CreatedAt { get; set; }

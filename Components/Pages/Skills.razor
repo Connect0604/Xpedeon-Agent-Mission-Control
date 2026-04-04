@@ -1,0 +1,144 @@
+@page "/skills"
+@rendermode InteractiveServer
+@inject SkillService SkillService
+@inject AgentService AgentService
+
+<PageTitle>Skills - Xpedeon AMC</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Capability Skills</h1>
+        <p class="page-subtitle">Reusable skill bundles that shape prompts, guardrails, and MCP tool access.</p>
+    </div>
+</div>
+
+@if (!skills.Any())
+{
+    <div class="card card-pad empty-state">
+        <div class="empty-icon"><i class="bi bi-stars"></i></div>
+        <div class="empty-title">No skills configured</div>
+        <div class="empty-desc">Skills will appear here once they are seeded or created.</div>
+    </div>
+}
+else
+{
+    <div class="learning-kpi-row">
+        <div class="learning-kpi">
+            <div class="learning-kpi__val">@skills.Count</div>
+            <div class="learning-kpi__lbl">Enabled Skills</div>
+        </div>
+        <div class="learning-kpi">
+            <div class="learning-kpi__val">@skills.Count(s => s.IsBuiltIn)</div>
+            <div class="learning-kpi__lbl">Built In</div>
+        </div>
+        <div class="learning-kpi">
+            <div class="learning-kpi__val">@skills.Count(s => s.RequiresApproval)</div>
+            <div class="learning-kpi__lbl">Approval Skills</div>
+        </div>
+        <div class="learning-kpi">
+            <div class="learning-kpi__val">@skills.Count(s => SkillService.ParseAllowedToolNames(s).Any())</div>
+            <div class="learning-kpi__lbl">Tool Scoped</div>
+        </div>
+        <div class="learning-kpi">
+            <div class="learning-kpi__val">@skills.Count(s => s.MaxToolCalls.HasValue)</div>
+            <div class="learning-kpi__lbl">Guardrailed</div>
+        </div>
+        <div class="learning-kpi">
+            <div class="learning-kpi__val">@agentsWithSkills</div>
+            <div class="learning-kpi__lbl">Agents Using Skills</div>
+        </div>
+    </div>
+
+    <div class="eval-grid mt-4">
+        @foreach (var skill in skills)
+        {
+            var allowedTools = SkillService.ParseAllowedToolNames(skill);
+            <div class="card card-pad eval-card">
+                <div class="eval-card__head">
+                    <div>
+                        <div class="section-head"><i class="bi bi-stars"></i> @skill.Name</div>
+                        <div class="text-sm text-secondary mt-1">@skill.Description</div>
+                    </div>
+                    <div style="display:flex;gap:var(--s2);flex-wrap:wrap;justify-content:flex-end;">
+                        @if (skill.IsBuiltIn)
+                        {
+                            <span class="badge badge-accent">Built In</span>
+                        }
+                        @if (skill.RequiresApproval)
+                        {
+                            <span class="badge badge-warning">Approval</span>
+                        }
+                        @if (!skill.IsEnabled)
+                        {
+                            <span class="badge badge-error">Disabled</span>
+                        }
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(skill.PromptSnippet))
+                {
+                    <div class="form-group mt-4">
+                        <label class="form-label text-xs text-muted">Prompt Guidance</label>
+                        <div class="output-box">@skill.PromptSnippet</div>
+                    </div>
+                }
+
+                <div class="token-stats mt-4">
+                    <div class="token-stat">
+                        <span class="text-muted text-xs">Assigned Agents</span>
+                        <span>@skill.AgentAssignments.Count(a => a.IsEnabled)</span>
+                    </div>
+                    <div class="token-stat">
+                        <span class="text-muted text-xs">Preferred Model</span>
+                        <span class="font-mono">@(skill.PreferredModelName ?? "None")</span>
+                    </div>
+                    <div class="token-stat">
+                        <span class="text-muted text-xs">Max Tool Calls</span>
+                        <span>@(skill.MaxToolCalls?.ToString() ?? "Default")</span>
+                    </div>
+                    <div class="token-stat">
+                        <span class="text-muted text-xs">Created</span>
+                        <span>@skill.CreatedAt.ToString("dd MMM yyyy")</span>
+                    </div>
+                </div>
+
+                <div class="mt-4">
+                    <label class="form-label text-xs text-muted">Allowed MCP Tools</label>
+                    @if (allowedTools.Any())
+                    {
+                        <div style="display:flex;flex-wrap:wrap;gap:var(--s2);">
+                            @foreach (var toolName in allowedTools)
+                            {
+                                <span class="tag">@toolName</span>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="text-sm text-muted">All assigned MCP tools remain available.</div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<SkillDefinition> skills = new();
+    private int agentsWithSkills;
+
+    protected override async Task OnInitializedAsync()
+    {
+        skills = await SkillService.GetAllAsync();
+        var agents = await AgentService.GetAllAsync();
+        agentsWithSkills = agents.Count(a => a.Skills.Any(s => s.IsEnabled && s.SkillDefinition is { IsEnabled: true }));
+
+        foreach (var skill in skills)
+        {
+            skill.AgentAssignments = agents
+                .SelectMany(a => a.Skills)
+                .Where(s => s.SkillDefinitionId == skill.Id && s.IsEnabled)
+                .ToList();
+        }
+    }
+}

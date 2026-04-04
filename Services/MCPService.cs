@@ -45,6 +45,8 @@ public class MCPToolCallResult
 public class MCPService
 {
     private const string ProtocolVersion = "2025-03-26";
+    private static readonly TimeSpan ConnectionTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan ToolInvocationTimeout = TimeSpan.FromSeconds(90);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<MCPService> _logger;
@@ -80,9 +82,10 @@ public class MCPService
                 };
             }
 
-            await using var session = await CreateSessionAsync(server, cancellationToken);
-            var init = await InitializeAsync(session, cancellationToken);
-            var tools = await ListToolsInternalAsync(session, cancellationToken);
+            using var timeoutCts = CreateTimeoutCancellation(ConnectionTimeout, cancellationToken);
+            await using var session = await CreateSessionAsync(server, timeoutCts.Token);
+            var init = await InitializeAsync(session, timeoutCts.Token);
+            var tools = await ListToolsInternalAsync(session, timeoutCts.Token);
 
             return new MCPConnectionTestResult
             {
@@ -91,6 +94,15 @@ public class MCPService
                 ServerName = init.ServerName,
                 ServerVersion = init.ServerVersion,
                 ToolCount = tools.Count
+            };
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning("MCP test connection timed out for {ServerName}", server.Name);
+            return new MCPConnectionTestResult
+            {
+                Success = false,
+                Message = $"Connection timed out after {ConnectionTimeout.TotalSeconds:0} seconds. Verify the endpoint launches an MCP server and responds to initialize."
             };
         }
         catch (Exception ex)
@@ -117,9 +129,10 @@ public class MCPService
                 };
             }
 
-            await using var session = await CreateSessionAsync(server, cancellationToken);
-            await InitializeAsync(session, cancellationToken);
-            var tools = await ListToolsInternalAsync(session, cancellationToken);
+            using var timeoutCts = CreateTimeoutCancellation(ConnectionTimeout, cancellationToken);
+            await using var session = await CreateSessionAsync(server, timeoutCts.Token);
+            await InitializeAsync(session, timeoutCts.Token);
+            var tools = await ListToolsInternalAsync(session, timeoutCts.Token);
             tools.ForEach(t =>
             {
                 t.ServerId = server.Id;
@@ -131,6 +144,15 @@ public class MCPService
                 Success = true,
                 Message = tools.Count == 0 ? "Connected, but no tools were reported." : $"Discovered {tools.Count} tool(s).",
                 Tools = tools
+            };
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning("MCP list tools timed out for {ServerName}", server.Name);
+            return new MCPToolDiscoveryResult
+            {
+                Success = false,
+                Message = $"Tool discovery timed out after {ConnectionTimeout.TotalSeconds:0} seconds. The configured endpoint may not be speaking MCP."
             };
         }
         catch (Exception ex)
@@ -151,14 +173,15 @@ public class MCPService
             if (server.TransportType == MCPTransportType.SSE)
                 throw new NotSupportedException("SSE tool invocation is not supported yet. Use HTTP, WebSocket, or stdio.");
 
-            await using var session = await CreateSessionAsync(server, cancellationToken);
-            await InitializeAsync(session, cancellationToken);
+            using var timeoutCts = CreateTimeoutCancellation(ToolInvocationTimeout, cancellationToken);
+            await using var session = await CreateSessionAsync(server, timeoutCts.Token);
+            await InitializeAsync(session, timeoutCts.Token);
 
             using var response = await session.SendRequestAsync("tools/call", new
             {
                 name = toolName,
                 arguments
-            }, cancellationToken);
+            }, timeoutCts.Token);
 
             var result = response.RootElement.GetProperty("result");
             var text = ExtractToolResultText(result);
@@ -170,6 +193,18 @@ public class MCPService
                 ServerName = server.Name,
                 ResultText = text,
                 Trace = $"MCP tools/call via {server.TransportType} on {server.Name}: {toolName}"
+            };
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning("MCP tool call timed out for {ToolName} on {ServerName}", toolName, server.Name);
+            return new MCPToolCallResult
+            {
+                Success = false,
+                ToolName = toolName,
+                ServerName = server.Name,
+                ResultText = $"Tool call timed out after {ToolInvocationTimeout.TotalSeconds:0} seconds.",
+                Trace = $"MCP tool call timed out on {server.Name}: {toolName}"
             };
         }
         catch (Exception ex)
@@ -261,6 +296,13 @@ public class MCPService
             MCPTransportType.Stdio => await StdioMCPSession.CreateAsync(server, cancellationToken),
             _ => throw new NotSupportedException($"MCP transport '{server.TransportType}' is not supported for this operation.")
         };
+    }
+
+    private static CancellationTokenSource CreateTimeoutCancellation(TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(timeout);
+        return cts;
     }
 
     private HttpClient CreateHttpClient(MCPServer server)
@@ -483,12 +525,15 @@ public class MCPService
         private readonly Process _process;
         private readonly Stream _stdin;
         private readonly Stream _stdout;
+        private readonly StringBuilder _stderrBuffer = new();
 
         private StdioMCPSession(Process process)
         {
             _process = process;
             _stdin = process.StandardInput.BaseStream;
             _stdout = process.StandardOutput.BaseStream;
+            _process.ErrorDataReceived += OnErrorDataReceived;
+            _process.BeginErrorReadLine();
         }
 
         public static async Task<StdioMCPSession> CreateAsync(MCPServer server, CancellationToken cancellationToken)
@@ -543,6 +588,7 @@ public class MCPService
                 // best effort
             }
 
+            _process.ErrorDataReceived -= OnErrorDataReceived;
             _process.Dispose();
             return ValueTask.CompletedTask;
         }
@@ -563,10 +609,14 @@ public class MCPService
 
             while (true)
             {
+                ThrowIfExited();
                 var buffer = new byte[1];
                 var read = await _stdout.ReadAsync(buffer, cancellationToken);
                 if (read == 0)
+                {
+                    ThrowIfExited();
                     throw new InvalidOperationException("Stdio MCP process closed without returning a response.");
+                }
 
                 headerBytes.Add(buffer[0]);
                 if (headerBytes.Count >= endMarker.Length &&
@@ -584,13 +634,36 @@ public class MCPService
             var offset = 0;
             while (offset < contentLength)
             {
+                ThrowIfExited();
                 var read = await _stdout.ReadAsync(payload.AsMemory(offset, contentLength - offset), cancellationToken);
                 if (read == 0)
+                {
+                    ThrowIfExited();
                     throw new InvalidOperationException("Unexpected end of stdio MCP response.");
+                }
                 offset += read;
             }
 
             return Encoding.UTF8.GetString(payload);
+        }
+
+        private void OnErrorDataReceived(object sender, DataReceivedEventArgs e)
+        {
+            if (!string.IsNullOrWhiteSpace(e.Data))
+                _stderrBuffer.AppendLine(e.Data);
+        }
+
+        private void ThrowIfExited()
+        {
+            if (!_process.HasExited)
+                return;
+
+            var stderr = _stderrBuffer.ToString().Trim();
+            var exitDetails = $"Stdio MCP process exited with code {_process.ExitCode}.";
+            if (!string.IsNullOrWhiteSpace(stderr))
+                throw new InvalidOperationException($"{exitDetails} {stderr}");
+
+            throw new InvalidOperationException(exitDetails);
         }
     }
 
