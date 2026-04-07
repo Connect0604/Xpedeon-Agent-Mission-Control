@@ -242,6 +242,53 @@ public class TaskService
             await _realtime.AgentUpdatedAsync(agent.Id);
     }
 
+    public async Task DeleteTaskAsync(string taskId)
+    {
+        await using var db = _factory.CreateDbContext();
+
+        var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == taskId);
+        if (task == null)
+            return;
+
+        if (TaskCancellation.TryGetValue(taskId, out var cts))
+            cts.Cancel();
+
+        if (!string.IsNullOrWhiteSpace(task.ExternalRunId) && task.ExecutionBackendSnapshot == ExecutionBackend.HermesOpenClaw)
+        {
+            try
+            {
+                await _hermes.CancelRunAsync(task.ExternalRunId);
+            }
+            catch
+            {
+                // Best-effort cleanup for remote execution before deleting the local record.
+            }
+        }
+
+        var feedbacks = await db.TaskFeedbacks.Where(f => f.TaskId == taskId).ToListAsync();
+        if (feedbacks.Any())
+            db.TaskFeedbacks.RemoveRange(feedbacks);
+
+        var logs = await db.Logs.Where(l => l.TaskId == taskId).ToListAsync();
+        if (logs.Any())
+            db.Logs.RemoveRange(logs);
+
+        var agent = await db.Agents.FindAsync(task.AgentId);
+        if (agent != null && agent.CurrentTask == task.Name)
+        {
+            agent.Status = AgentStatus.Idle;
+            agent.CurrentTask = "Idle";
+        }
+
+        db.Tasks.Remove(task);
+        await db.SaveChangesAsync();
+
+        await _realtime.TaskUpdatedAsync(taskId, task.AgentId);
+        await _realtime.DashboardRefreshAsync();
+        if (agent != null)
+            await _realtime.AgentUpdatedAsync(agent.Id);
+    }
+
     public async Task SubmitFeedbackAsync(string taskId, int rating, string? note, string? correctedOutput)
     {
         await using var db = _factory.CreateDbContext();

@@ -22,7 +22,7 @@ else
     <div class="page-header">
         <div>
             <h1 class="page-title">Edit Agent</h1>
-            <p class="page-subtitle">@agent.Name</p>
+            <p class="page-subtitle">Update behavior, limits, integrations, and schedule for @agent.Name.</p>
         </div>
         <div style="display:flex;gap:var(--s2);">
             <button class="btn btn-ghost text-error" @onclick="() => showDeleteConfirm = true">
@@ -39,6 +39,7 @@ else
         <!-- Basics -->
         <div class="card card-pad">
             <h3 class="section-title mb-4">Basics</h3>
+            <p class="form-section-intro">Keep the identity and description easy to scan in fleet views and task history.</p>
             <div class="form-group">
                 <label class="form-label">Agent Name <span class="text-error">*</span></label>
                 <input class="form-input" @bind="agent.Name" />
@@ -74,6 +75,7 @@ else
         <!-- LLM & System Prompt -->
         <div class="card card-pad">
             <h3 class="section-title mb-4">LLM Provider & System Prompt</h3>
+            <p class="form-section-intro">Adjust where the agent runs, which provider it uses, and how its instructions are framed.</p>
             <div class="form-group">
                 <label class="form-label">Execution Backend</label>
                 <div class="type-picker">
@@ -125,6 +127,7 @@ else
         <!-- Memory -->
         <div class="card card-pad">
             <h3 class="section-title mb-4">Memory</h3>
+            <p class="form-section-intro">Control what the agent retains between runs and what it can share with a swarm.</p>
             <div class="toggle-group">
                 <div class="toggle-item">
                     <div>
@@ -162,7 +165,7 @@ else
         <!-- MCP Servers -->
         <div class="card card-pad">
             <h3 class="section-title mb-4">MCP Servers</h3>
-            <p class="text-secondary text-sm mb-4">Attach non-global MCP servers to this agent.</p>
+            <p class="form-section-intro">Attach non-global MCP servers only when this agent truly needs them.</p>
             @if (!allMcpServers.Any())
             {
                 <div class="text-muted text-sm">No MCP servers configured. <a href="/mcp" class="text-accent">Add one first.</a></div>
@@ -193,7 +196,7 @@ else
 
         <div class="card card-pad">
             <h3 class="section-title mb-4">Capability Skills</h3>
-            <p class="text-secondary text-sm mb-4">Attach reusable skills that shape prompts, tool access, and guardrails.</p>
+            <p class="form-section-intro">Attach reusable skills that shape prompts, tool access, and guardrails.</p>
             @if (!allSkills.Any())
             {
                 <div class="text-muted text-sm">No skills configured.</div>
@@ -238,6 +241,7 @@ else
         <!-- Dynamic Spawning -->
         <div class="card card-pad">
             <h3 class="section-title mb-4">Dynamic Spawning</h3>
+            <p class="form-section-intro">Decide whether this agent should break work into child tasks at runtime.</p>
             <div class="toggle-item mb-4">
                 <div>
                     <div class="toggle-label">Enable Dynamic Spawning</div>
@@ -324,6 +328,7 @@ else
         <!-- Advanced -->
         <div class="card card-pad">
             <h3 class="section-title mb-4">Advanced</h3>
+            <p class="form-section-intro">Set execution limits, approval rules, and schedule behavior for this agent.</p>
             <div class="form-row">
                 <div class="form-group">
                     <label class="form-label">Memory Limit (MB)</label>

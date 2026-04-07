@@ -7,18 +7,17 @@
             <i class="bi bi-list"></i>
         </button>
         <div class="topbar-heading">
-            <span class="topbar-crumb">Xpedeon Aura</span>
+            <span class="topbar-crumb">Mission Control</span>
             <span class="topbar-title">@PageTitle</span>
         </div>
     </div>
     <div class="topbar-right">
-        <div class="live-pill" aria-label="Live data">
+        <div class="live-pill" aria-label="Realtime updates enabled">
             <span class="dot active sm" aria-hidden="true"></span>
-            LIVE
+            Realtime
         </div>
-        <div class="topbar-divider" aria-hidden="true"></div>
-        <span class="topbar-time" aria-live="off">@currentTime</span>
-        <button class="topbar-icon-btn" title="Refresh" aria-label="Refresh">
+        <span class="topbar-time" aria-live="off">Updated @currentTime</span>
+        <button class="topbar-icon-btn" title="Reload page" aria-label="Reload page" @onclick="RefreshPage">
             <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
         </button>
     </div>
@@ -52,6 +51,7 @@
     }
 
     private void Tick() => currentTime = DateTime.Now.ToString("HH:mm:ss");
+    private void RefreshPage() => Nav.NavigateTo(Nav.Uri, forceLoad: true);
 
     public void Dispose() => _clockTimer?.Dispose();
 }

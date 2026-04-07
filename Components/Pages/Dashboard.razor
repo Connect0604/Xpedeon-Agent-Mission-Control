@@ -6,9 +6,11 @@
 @inject LogService LogService
 @inject MockDataService DataService
 @inject RealtimeService RealtimeService
+@inject LLMProviderService ProviderService
+@inject SwarmService SwarmService
 @inject NavigationManager Nav
 
-<PageTitle>Dashboard — Xpedeon AMC</PageTitle>
+<PageTitle>Dashboard - Xpedeon AMC</PageTitle>
 
 <div class="page-header dashboard-hero">
     <div>
@@ -25,26 +27,38 @@
     </div>
 </div>
 
-<!-- KPI Row -->
 <div class="g-4 mb-6 dashboard-metrics">
-    <MetricCard Title="Total Agents"   Value="@summary.TotalAgents.ToString()"
-                Icon="bi-robot"        Variant="accent"
-                Sub="@($"{summary.ActiveAgents} active · {summary.IdleAgents} idle")" />
+    <MetricCard Title="Total Agents" Value="@summary.TotalAgents.ToString()"
+                Icon="bi-robot" Variant="accent"
+                Sub="@($"{summary.ActiveAgents} active - {summary.IdleAgents} idle")" />
 
-    <MetricCard Title="Active Now"     Value="@summary.ActiveAgents.ToString()"
-                Icon="bi-activity"     Variant="success"
-                Sub="@($"{summary.WarningAgents} warning · {summary.ErrorAgents} error")" />
+    <MetricCard Title="Active Now" Value="@summary.ActiveAgents.ToString()"
+                Icon="bi-activity" Variant="success"
+                Sub="@($"{summary.WarningAgents} warning - {summary.ErrorAgents} error")" />
 
-    <MetricCard Title="Tasks Today"    Value="@summary.TotalTasksToday.ToString()"
+    <MetricCard Title="Tasks Today" Value="@summary.TotalTasksToday.ToString()"
                 Icon="bi-check2-circle" Variant="accent"
-                Sub="@($"{summary.RunningTasks} running · {summary.QueuedTasks} queued")" />
+                Sub="@($"{summary.RunningTasks} running - {summary.QueuedTasks} queued")" />
 
-    <MetricCard Title="Today's Cost"   Value="@($"${summary.TotalCostToday:F4}")"
+    <MetricCard Title="Today's Cost" Value="@($"${summary.TotalCostToday:F4}")"
                 Icon="bi-currency-dollar" Variant="warning"
                 Sub="@($"{summary.TotalTokensToday:N0} tokens")" />
 </div>
 
-<!-- Pending Approvals Alert -->
+<div class="command-strip">
+    @foreach (var insight in commandInsights)
+    {
+        <div class="command-strip__item">
+            <div class="command-strip__top">
+                <div class="command-strip__label">@insight.Label</div>
+                <button class="mini-link" @onclick="@(() => Nav.NavigateTo(insight.Route))">Open</button>
+            </div>
+            <div class="command-strip__value @insight.ValueClass">@insight.Value</div>
+            <div class="command-strip__meta">@insight.Meta</div>
+        </div>
+    }
+</div>
+
 @if (summary.PendingApprovals > 0)
 {
     <div class="dash-alert" @onclick='() => Nav.NavigateTo("/tasks")' style="cursor:pointer;">
@@ -54,17 +68,35 @@
     </div>
 }
 
-<!-- Main Layout -->
 <div class="dash-layout">
-
-    <!-- Left Column -->
     <div>
-        <!-- Agent Fleet -->
         <div class="section-head">
+            <i class="bi bi-diagram-3"></i> Task Pipeline
+            <span style="margin-left:auto;font-size:11px;font-weight:400;color:var(--txt-muted);">
+                last @allTasks.Count tracked runs
+            </span>
+            <button class="mini-link" @onclick='() => Nav.NavigateTo("/tasks")'>Open Tasks</button>
+        </div>
+        <div class="pipeline-grid">
+            @foreach (var stage in pipelineStages)
+            {
+                <button class="pipeline-stage pipeline-stage--button" @onclick="@(() => Nav.NavigateTo(stage.Route))">
+                    <div class="pipeline-stage__header">
+                        <span class="pipeline-stage__icon @stage.Tone"><i class="bi @stage.Icon"></i></span>
+                        <span class="pipeline-stage__label">@stage.Label</span>
+                    </div>
+                    <div class="pipeline-stage__value">@stage.Count</div>
+                    <div class="pipeline-stage__meta">@stage.Meta</div>
+                </button>
+            }
+        </div>
+
+        <div class="section-head mt-6">
             <i class="bi bi-broadcast"></i> Agent Fleet
             <span style="margin-left:auto;font-size:11px;font-weight:400;color:var(--txt-muted);">
                 @agents.Count agents
             </span>
+            <button class="mini-link" @onclick='() => Nav.NavigateTo("/agents")'>Open Agents</button>
         </div>
 
         @if (!agents.Any())
@@ -88,13 +120,51 @@
             </div>
         }
 
-        <!-- Active Tasks -->
+        <div class="section-head mt-6">
+            <i class="bi bi-trophy"></i> Performance Board
+            <button class="mini-link ml-auto" @onclick='() => Nav.NavigateTo("/agents")'>Open Agents</button>
+        </div>
+        <div class="card card-pad">
+            @if (!leaderboard.Any())
+            {
+                <div class="empty-desc">Leaderboard becomes available once agents complete work.</div>
+            }
+            else
+            {
+                <div class="scoreboard-list">
+                    @foreach (var item in leaderboard)
+                    {
+                        <div class="scoreboard-row">
+                            <div class="scoreboard-rank">@item.Rank</div>
+                            <div class="scoreboard-main">
+                                <div class="scoreboard-name">@item.Name</div>
+                                <div class="scoreboard-meta">@item.Provider</div>
+                            </div>
+                            <div class="scoreboard-metric">
+                                <span class="scoreboard-metric__value">@item.SuccessRate.ToString("F1")%</span>
+                                <span class="scoreboard-metric__label">success</span>
+                            </div>
+                            <div class="scoreboard-metric">
+                                <span class="scoreboard-metric__value">@item.Completed</span>
+                                <span class="scoreboard-metric__label">completed</span>
+                            </div>
+                            <div class="scoreboard-metric">
+                                <span class="scoreboard-metric__value">$@item.Cost.ToString("F3")</span>
+                                <span class="scoreboard-metric__label">cost</span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
         <div class="section-head mt-6">
             <i class="bi bi-play-circle"></i> Active Tasks
             @if (runningTasks.Any())
             {
                 <span class="badge badge-accent ml-2">@runningTasks.Count</span>
             }
+            <button class="mini-link ml-auto" @onclick='() => Nav.NavigateTo("/tasks")'>Open Tasks</button>
         </div>
         <div class="card" style="padding:0;">
             @if (!runningTasks.Any())
@@ -140,7 +210,27 @@
             }
         </div>
 
-        <!-- Cost & Token Summary -->
+        <div class="section-head mt-6">
+            <i class="bi bi-cash-stack"></i> Cost Analytics
+            <button class="mini-link ml-auto" @onclick='() => Nav.NavigateTo("/providers")'>Open Providers</button>
+        </div>
+        <div class="g-2">
+            @foreach (var cost in costBreakdowns)
+            {
+                <div class="card card-pad analytics-tile">
+                    <div class="analytics-tile__header">
+                        <div>
+                            <div class="analytics-tile__title">@cost.Provider</div>
+                            <div class="analytics-tile__meta">@cost.Meta</div>
+                        </div>
+                        <span class="badge badge-accent">@cost.TaskCount tasks</span>
+                    </div>
+                    <div class="analytics-tile__value">$@cost.Cost.ToString("F4")</div>
+                    <div class="analytics-tile__sub">@cost.Tokens:N0 tokens</div>
+                </div>
+            }
+        </div>
+
         @if (summary.TotalAgents > 0)
         {
             <div class="section-head mt-6">
@@ -165,11 +255,161 @@
         }
     </div>
 
-    <!-- Right Column -->
     <div>
-        <!-- Live Activity Feed -->
         <div class="section-head">
+            <i class="bi bi-bell"></i> Anomaly Alerts
+            <button class="mini-link ml-auto" @onclick='() => Nav.NavigateTo("/logs")'>Open Logs</button>
+        </div>
+        <div class="card card-pad">
+            @if (!anomalyAlerts.Any())
+            {
+                <div class="empty-desc">No anomalies detected in the latest execution window.</div>
+            }
+            else
+            {
+                <div class="stack-list">
+                    @foreach (var alert in anomalyAlerts)
+                    {
+                        <div class="stack-row">
+                            <div class="stack-row__main">
+                                <div class="stack-row__title">@alert.Title</div>
+                                <div class="stack-row__meta">@alert.Meta</div>
+                            </div>
+                            <div class="stack-row__actions">
+                                <span class="provider-state @alert.Tone">@alert.State</span>
+                                <button class="mini-link" @onclick="@(() => Nav.NavigateTo(alert.Route))">Review</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="section-head mt-6">
+            <i class="bi bi-shield-check"></i> Approval Inbox
+            <button class="mini-link ml-auto" @onclick='() => Nav.NavigateTo("/tasks")'>Open Tasks</button>
+        </div>
+        <div class="card card-pad">
+            @if (!approvalTasks.Any())
+            {
+                <div class="empty-desc">No tasks are waiting for approval right now.</div>
+            }
+            else
+            {
+                <div class="stack-list">
+                    @foreach (var task in approvalTasks)
+                    {
+                        <div class="stack-row">
+                            <div class="stack-row__main">
+                                <div class="stack-row__title">@task.Name</div>
+                                <div class="stack-row__meta">@task.AgentName - @task.Priority</div>
+                            </div>
+                            <div class="stack-row__actions">
+                                <div class="stack-row__aside">@RelTime(task.CreatedAt)</div>
+                                <button class="mini-link" @onclick='() => Nav.NavigateTo("/tasks")'>Review</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="section-head mt-6">
+            <i class="bi bi-graph-up-arrow"></i> Trend Radar
+            <button class="mini-link ml-auto" @onclick='() => Nav.NavigateTo("/tasks")'>Open Tasks</button>
+        </div>
+        <div class="card card-pad">
+            @if (!trendPoints.Any())
+            {
+                <div class="empty-desc">Trend data will appear once task history accumulates.</div>
+            }
+            else
+            {
+                <div class="trend-board">
+                    @foreach (var point in trendPoints)
+                    {
+                        <div class="trend-col">
+                            <div class="trend-bars">
+                                <div class="trend-bar trend-bar--total" style="height:@point.TotalHeight%"></div>
+                                <div class="trend-bar trend-bar--failed" style="height:@point.FailedHeight%"></div>
+                                <div class="trend-bar trend-bar--cost" style="height:@point.CostHeight%"></div>
+                            </div>
+                            <div class="trend-col__meta">
+                                <span>@point.Label</span>
+                                <span>@point.Total tasks</span>
+                            </div>
+                        </div>
+                    }
+                </div>
+                <div class="trend-legend">
+                    <span><i class="bi bi-square-fill text-accent"></i> Throughput</span>
+                    <span><i class="bi bi-square-fill text-error"></i> Failures</span>
+                    <span><i class="bi bi-square-fill text-warning"></i> Cost</span>
+                </div>
+            }
+        </div>
+
+        <div class="section-head mt-6">
+            <i class="bi bi-exclamation-triangle"></i> Failure Intelligence
+            <button class="mini-link ml-auto" @onclick='() => Nav.NavigateTo("/logs")'>Open Logs</button>
+        </div>
+        <div class="card card-pad">
+            @if (!failureClusters.Any())
+            {
+                <div class="empty-desc">No failure hotspots detected in the recent task history.</div>
+            }
+            else
+            {
+                <div class="stack-list">
+                    @foreach (var cluster in failureClusters)
+                    {
+                        <div class="stack-row">
+                            <div class="stack-row__main">
+                                <div class="stack-row__title">@cluster.Message</div>
+                                <div class="stack-row__meta">@cluster.AgentsInvolved agent(s) impacted</div>
+                            </div>
+                            <div class="stack-row__actions">
+                                <div class="stack-row__aside text-error">@cluster.Count hit(s)</div>
+                                <button class="mini-link" @onclick='() => Nav.NavigateTo("/logs")'>Inspect</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="section-head mt-6">
+            <i class="bi bi-cpu"></i> Provider Monitor
+            <button class="mini-link ml-auto" @onclick='() => Nav.NavigateTo("/providers")'>Open Providers</button>
+        </div>
+        <div class="card card-pad">
+            @if (!providerHealth.Any())
+            {
+                <div class="empty-desc">No providers configured yet.</div>
+            }
+            else
+            {
+                <div class="stack-list">
+                    @foreach (var provider in providerHealth)
+                    {
+                        <div class="stack-row">
+                            <div class="stack-row__main">
+                                <div class="stack-row__title">@provider.Name</div>
+                                <div class="stack-row__meta">@provider.Model - @provider.Meta</div>
+                            </div>
+                            <div class="stack-row__actions">
+                                <div class="provider-state @provider.Tone">@provider.State</div>
+                                <button class="mini-link" @onclick='() => Nav.NavigateTo("/providers")'>Inspect</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="section-head mt-6">
             <i class="bi bi-clock-history"></i> Live Activity
+            <button class="mini-link ml-auto" @onclick='() => Nav.NavigateTo("/logs")'>Open Logs</button>
         </div>
         <div class="card" style="padding:0;overflow:hidden;">
             <div style="max-height:520px;overflow-y:auto;" id="dash-feed">
@@ -192,7 +432,7 @@
                                 <div class="feed-msg">@log.Message</div>
                                 <div class="feed-meta">
                                     <span class="feed-agent">@log.AgentName</span>
-                                    <span class="text-muted">·</span>
+                                    <span class="text-muted">-</span>
                                     <span class="feed-time">@RelTime(log.Timestamp)</span>
                                 </div>
                             </div>
@@ -202,16 +442,58 @@
             </div>
         </div>
 
-        <!-- Fleet Health -->
+        <div class="section-head mt-6">
+            <i class="bi bi-people"></i> Swarm Activity
+            <button class="mini-link ml-auto" @onclick='() => Nav.NavigateTo("/swarms")'>Open Swarms</button>
+        </div>
+        <div class="card card-pad">
+            @if (!swarmInsights.Any())
+            {
+                <div class="empty-desc">No swarm activity is configured yet.</div>
+            }
+            else
+            {
+                <div class="swarm-activity-grid">
+                    @foreach (var swarm in swarmInsights)
+                    {
+                        <div class="swarm-activity-card">
+                            <div class="swarm-activity-card__top">
+                                <div>
+                                    <div class="swarm-activity-card__name">@swarm.Name</div>
+                                    <div class="swarm-activity-card__meta">@swarm.Strategy - @swarm.ActiveAgents/@swarm.TotalAgents active agents</div>
+                                </div>
+                                <span class="provider-state @swarm.Tone">@swarm.State</span>
+                            </div>
+                            <div class="swarm-activity-card__stats">
+                                <div>
+                                    <strong>@swarm.SwarmTasks</strong>
+                                    <span>swarm tasks</span>
+                                </div>
+                                <div>
+                                    <strong>@swarm.SpawnedChildren</strong>
+                                    <span>spawned children</span>
+                                </div>
+                                <div>
+                                    <strong>@swarm.ApprovalsWaiting</strong>
+                                    <span>approvals</span>
+                                </div>
+                            </div>
+                            <button class="mini-link mini-link--block" @onclick='() => Nav.NavigateTo("/swarms")'>Open Swarm</button>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
         <div class="section-head mt-6">
             <i class="bi bi-bar-chart-line"></i> Fleet Health
         </div>
         <div class="card card-pad">
             <div style="display:flex;flex-direction:column;gap:var(--s3);">
                 <HealthBar Label="Healthy" Value="@summary.ActiveAgents" Total="@summary.TotalAgents" Color="var(--c-active)" />
-                <HealthBar Label="Idle"    Value="@summary.IdleAgents"   Total="@summary.TotalAgents" Color="var(--c-idle)" />
+                <HealthBar Label="Idle" Value="@summary.IdleAgents" Total="@summary.TotalAgents" Color="var(--c-idle)" />
                 <HealthBar Label="Warning" Value="@summary.WarningAgents" Total="@summary.TotalAgents" Color="var(--c-warning)" />
-                <HealthBar Label="Error"   Value="@summary.ErrorAgents"  Total="@summary.TotalAgents" Color="var(--c-error)" />
+                <HealthBar Label="Error" Value="@summary.ErrorAgents" Total="@summary.TotalAgents" Color="var(--c-error)" />
                 <HealthBar Label="Offline" Value="@summary.OfflineAgents" Total="@summary.TotalAgents" Color="var(--c-offline)" />
             </div>
             <div class="fleet-stats-row mt-4">
@@ -230,7 +512,6 @@
             </div>
         </div>
 
-        <!-- Quick Actions -->
         <div class="section-head mt-6">
             <i class="bi bi-lightning-charge"></i> Quick Actions
         </div>
@@ -257,23 +538,239 @@
 
 @code {
     private List<Agent> agents = new();
+    private List<AgentTask> allTasks = new();
     private List<AgentTask> runningTasks = new();
     private List<LogEntry> recentLogs = new();
+    private List<LLMProvider> providers = new();
+    private List<Swarm> swarms = new();
     private DashboardSummary summary = new();
     private string lastUpdated = "";
     private Timer? _timer;
 
+    private IReadOnlyList<CommandInsightVm> commandInsights => new[]
+    {
+        new CommandInsightVm("Requires Attention", (summary.WarningAgents + summary.ErrorAgents).ToString(), $"{summary.WarningAgents} warning - {summary.ErrorAgents} error", summary.ErrorAgents > 0 ? "text-error" : "text-warning", "/agents"),
+        new CommandInsightVm("Failure Rate", FailureRate.ToString("F1") + "%", $"{summary.FailedTasksToday} failed of {Math.Max(summary.TotalTasksToday, 0)} today", summary.FailedTasksToday > 0 ? "text-error" : "text-success", "/tasks"),
+        new CommandInsightVm("Avg Runtime", AverageDurationLabel, $"{CompletedTasks.Count} completed runs sampled", "", "/tasks"),
+        new CommandInsightVm("Provider Coverage", ProviderCoverageLabel, $"{providers.Count(p => p.IsEnabled)} enabled providers", "", "/providers")
+    };
+
+    private IReadOnlyList<PipelineStageVm> pipelineStages => new[]
+    {
+        new PipelineStageVm("Queued", TaskCount(AgentTaskStatus.Queued), "bi-hourglass-split", "idle", $"{HighPriorityQueuedCount} high priority", "/tasks"),
+        new PipelineStageVm("Running", TaskCount(AgentTaskStatus.Running), "bi-play-circle", "success", $"{LongRunningCount} long-running", "/tasks"),
+        new PipelineStageVm("Pending Approval", TaskCount(AgentTaskStatus.PendingApproval), "bi-shield-lock", "warning", $"{approvalTasks.Count} waiting review", "/tasks"),
+        new PipelineStageVm("Completed", TaskCount(AgentTaskStatus.Completed), "bi-check2-circle", "success", $"{CompletedTasks.Count} recent completions", "/tasks"),
+        new PipelineStageVm("Failed", TaskCount(AgentTaskStatus.Failed), "bi-x-circle", "danger", $"{failureClusters.Sum(f => f.Count)} recent failure events", "/logs")
+    };
+
+    private IReadOnlyList<AgentLeaderboardVm> leaderboard => agents
+        .OrderByDescending(a => a.SuccessRate)
+        .ThenByDescending(a => a.TasksCompleted)
+        .Take(5)
+        .Select((a, index) => new AgentLeaderboardVm(index + 1, a.Name, a.LLMProvider?.Name ?? "Unassigned provider", a.SuccessRate, a.TasksCompleted, a.TotalCostUSD))
+        .ToList();
+
+    private IReadOnlyList<FailureClusterVm> failureClusters => allTasks
+        .Where(t => t.Status == AgentTaskStatus.Failed)
+        .GroupBy(t => string.IsNullOrWhiteSpace(t.ErrorMessage) ? "Unknown execution failure" : t.ErrorMessage!)
+        .OrderByDescending(g => g.Count())
+        .Take(5)
+        .Select(g => new FailureClusterVm(g.Key, g.Count(), g.Select(t => t.AgentId).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().Count()))
+        .ToList();
+
+    private IReadOnlyList<ProviderHealthVm> providerHealth => providers
+        .Select(provider =>
+        {
+            var assignedAgents = agents.Count(a => a.LLMProviderId == provider.Id);
+            var providerTasks = allTasks.Where(t => t.ProviderSnapshotId == provider.Id || t.ProviderSnapshotName == provider.Name).ToList();
+            var failed = providerTasks.Count(t => t.Status == AgentTaskStatus.Failed);
+            var state = !provider.IsEnabled ? "Disabled"
+                : failed > 0 ? "Watch"
+                : assignedAgents > 0 ? "Healthy"
+                : "Standby";
+            var tone = !provider.IsEnabled ? "idle"
+                : failed > 0 ? "danger"
+                : assignedAgents > 0 ? "success"
+                : "idle";
+
+            return new ProviderHealthVm(
+                provider.Name,
+                provider.ModelName,
+                $"{assignedAgents} agent(s) assigned",
+                state,
+                tone);
+        })
+        .OrderByDescending(p => p.State == "Healthy")
+        .ThenByDescending(p => p.State == "Watch")
+        .ThenBy(p => p.Name)
+        .ToList();
+
+    private IReadOnlyList<AnomalyAlertVm> anomalyAlerts
+    {
+        get
+        {
+            var alerts = new List<AnomalyAlertVm>();
+
+            if (summary.PendingApprovals > 0)
+                alerts.Add(new AnomalyAlertVm("Approvals are accumulating", $"{summary.PendingApprovals} tasks are waiting on human review", "Watch", "warning", "/tasks"));
+
+            if (FailureRate >= 20)
+                alerts.Add(new AnomalyAlertVm("Failure rate spike", $"{FailureRate:F1}% of today's runs have failed", "Critical", "danger", "/logs"));
+
+            if (LongRunningCount > 0)
+                alerts.Add(new AnomalyAlertVm("Long-running executions detected", $"{LongRunningCount} task(s) have been running longer than 15 minutes", "Watch", "warning", "/tasks"));
+
+            var providerAtRisk = providerHealth.Count(p => p.State == "Watch");
+            if (providerAtRisk > 0)
+                alerts.Add(new AnomalyAlertVm("Provider instability detected", $"{providerAtRisk} provider(s) show recent failed runs", "Watch", "danger", "/providers"));
+
+            var spawnSurge = allTasks.Count(t => t.SpawnChildCount >= 3 || t.SpawnDepth >= 2);
+            if (spawnSurge > 0)
+                alerts.Add(new AnomalyAlertVm("Spawn surge in progress", $"{spawnSurge} task(s) expanded deeply through child execution", "Observe", "idle", "/tasks"));
+
+            return alerts.Take(5).ToList();
+        }
+    }
+
+    private IReadOnlyList<AgentTask> approvalTasks => allTasks
+        .Where(t => t.Status == AgentTaskStatus.PendingApproval)
+        .OrderBy(t => t.CreatedAt)
+        .Take(5)
+        .ToList();
+
+    private IReadOnlyList<CostBreakdownVm> costBreakdowns
+    {
+        get
+        {
+            var groups = allTasks
+                .Where(t => t.CostUSD > 0 || t.TotalTokens > 0)
+                .GroupBy(t => string.IsNullOrWhiteSpace(t.ProviderSnapshotName) ? "Unassigned runtime" : t.ProviderSnapshotName!)
+                .Select(g => new CostBreakdownVm(
+                    g.Key,
+                    g.Sum(t => t.CostUSD),
+                    g.Sum(t => t.TotalTokens),
+                    g.Count(),
+                    g.Max(t => string.IsNullOrWhiteSpace(t.ProviderSnapshotModel) ? t.ModelUsed : t.ProviderSnapshotModel) ?? "No model snapshot"))
+                .OrderByDescending(g => g.Cost)
+                .ThenByDescending(g => g.Tokens)
+                .Take(4)
+                .ToList();
+
+            if (groups.Any())
+                return groups;
+
+            return new[]
+            {
+                new CostBreakdownVm("Mission Spend", summary.TotalCostToday, summary.TotalTokensToday, summary.TotalTasksToday, "Today's aggregate"),
+                new CostBreakdownVm("Completed Runs", 0, CompletedTasks.Sum(t => t.TotalTokens), CompletedTasks.Count, "Execution volume")
+            };
+        }
+    }
+
+    private IReadOnlyList<TrendPointVm> trendPoints
+    {
+        get
+        {
+            var start = DateTime.Today.AddDays(-6);
+            var buckets = Enumerable.Range(0, 7)
+                .Select(offset =>
+                {
+                    var day = start.AddDays(offset);
+                    var dayTasks = allTasks.Where(t => t.CreatedAt.Date == day.Date).ToList();
+                    return new
+                    {
+                        Label = day.ToString("ddd"),
+                        Total = dayTasks.Count,
+                        Failed = dayTasks.Count(t => t.Status == AgentTaskStatus.Failed),
+                        Cost = dayTasks.Sum(t => t.CostUSD)
+                    };
+                })
+                .ToList();
+
+            if (!buckets.Any())
+                return Array.Empty<TrendPointVm>();
+
+            var maxTotal = Math.Max(1, buckets.Max(b => b.Total));
+            var maxFailed = Math.Max(1, buckets.Max(b => b.Failed));
+            var maxCost = Math.Max(0.0001m, buckets.Max(b => b.Cost));
+
+            return buckets.Select(b => new TrendPointVm(
+                b.Label,
+                b.Total,
+                b.Total == 0 ? 10 : Math.Max(14, (int)Math.Round((double)b.Total / maxTotal * 100)),
+                b.Failed == 0 ? 10 : Math.Max(12, (int)Math.Round((double)b.Failed / maxFailed * 100)),
+                b.Cost == 0 ? 10 : Math.Max(12, (int)Math.Round((double)(b.Cost / maxCost) * 100))))
+                .ToList();
+        }
+    }
+
+    private IReadOnlyList<SwarmInsightVm> swarmInsights => swarms
+        .Select(swarm =>
+        {
+            var swarmAgentIds = agents.Where(a => a.SwarmId == swarm.Id).Select(a => a.Id).ToHashSet();
+            var swarmTasks = allTasks.Where(t => t.TriggerSource == TriggerSource.Swarm || swarmAgentIds.Contains(t.AgentId)).ToList();
+            var activeAgents = agents.Count(a => a.SwarmId == swarm.Id && a.Status is AgentStatus.Active or AgentStatus.Idle);
+            var approvals = swarmTasks.Count(t => t.Status == AgentTaskStatus.PendingApproval);
+            var failedRuns = swarmTasks.Any(t => t.Status == AgentTaskStatus.Failed);
+            var totalAgents = Math.Max(swarm.AgentCount, swarm.Agents.Count);
+            var state = !swarm.IsActive ? "Paused"
+                : failedRuns ? "Watch"
+                : activeAgents > 0 ? "Online"
+                : "Idle";
+            var tone = !swarm.IsActive ? "idle"
+                : failedRuns ? "danger"
+                : activeAgents > 0 ? "success"
+                : "idle";
+
+            return new SwarmInsightVm(
+                swarm.Name,
+                swarm.Strategy.ToString(),
+                activeAgents,
+                totalAgents,
+                swarmTasks.Count,
+                swarmTasks.Sum(t => t.SpawnChildCount),
+                approvals,
+                state,
+                tone);
+        })
+        .OrderByDescending(s => s.State == "Online")
+        .ThenByDescending(s => s.SwarmTasks)
+        .Take(4)
+        .ToList();
+
+    private List<AgentTask> CompletedTasks => allTasks.Where(t => t.Status == AgentTaskStatus.Completed).ToList();
+    private double FailureRate => summary.TotalTasksToday > 0 ? (double)summary.FailedTasksToday / summary.TotalTasksToday * 100 : 0;
+    private int HighPriorityQueuedCount => allTasks.Count(t => t.Status == AgentTaskStatus.Queued && t.Priority is TaskPriority.High or TaskPriority.Critical);
+    private int LongRunningCount => allTasks.Count(t => t.Status == AgentTaskStatus.Running && t.StartedAt.HasValue && DateTime.UtcNow - t.StartedAt.Value > TimeSpan.FromMinutes(15));
+    private string ProviderCoverageLabel => $"{agents.Count(a => !string.IsNullOrWhiteSpace(a.LLMProviderId))}/{agents.Count} assigned";
+
+    private string AverageDurationLabel
+    {
+        get
+        {
+            var durations = CompletedTasks
+                .Where(t => t.DurationMs > 0)
+                .Select(t => t.DurationMs)
+                .ToList();
+
+            if (!durations.Any())
+                return "n/a";
+
+            var avg = TimeSpan.FromMilliseconds(durations.Average());
+            return avg.TotalMinutes >= 1 ? $"{avg.TotalMinutes:F1}m" : $"{avg.TotalSeconds:F0}s";
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
         await RefreshAsync();
-        // Poll every 3s — SignalR push supplements this
         _timer = new Timer(async _ =>
         {
             await RefreshAsync();
             await InvokeAsync(StateHasChanged);
         }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
 
-        // Also keep mock sim for agents that don't have real LLM yet
         DataService.OnDataChanged += HandleMockChange;
         RealtimeService.RefreshRequested += HandleRealtimeChange;
     }
@@ -296,16 +793,22 @@
     private async Task RefreshAsync()
     {
         agents = await AgentService.GetAllAsync();
-
-        // Fall back to mock agents if DB is empty (first run)
-        if (!agents.Any())
-            agents = DataService.GetAgents().ToList();
-
+        providers = await ProviderService.GetAllAsync();
+        swarms = await SwarmService.GetAllAsync();
         summary = await AgentService.GetSummaryAsync();
-        runningTasks = await TaskService.GetAllAsync(50);
-        runningTasks = runningTasks.Where(t => t.Status == AgentTaskStatus.Running).Take(8).ToList();
+        allTasks = await TaskService.GetAllAsync(150);
 
-        // Merge DB logs + mock logs
+        if (!agents.Any())
+        {
+            agents = DataService.GetAgents().ToList();
+            summary = DataService.GetSummary();
+        }
+
+        if (!allTasks.Any())
+            allTasks = DataService.GetTasks().OrderByDescending(t => t.CreatedAt).Take(150).ToList();
+
+        runningTasks = allTasks.Where(t => t.Status == AgentTaskStatus.Running).Take(8).ToList();
+
         var dbLogs = await LogService.GetAllAsync(15);
         var mockLogs = DataService.GetLogs(15).ToList();
         recentLogs = dbLogs.Concat(mockLogs)
@@ -324,22 +827,35 @@
         RealtimeService.RefreshRequested -= HandleRealtimeChange;
     }
 
+    private int TaskCount(AgentTaskStatus status) => allTasks.Count(t => t.Status == status);
+
     private static string FeedIcon(AgentLogLevel l) => l switch
     {
-        AgentLogLevel.Success  => "bi-check-circle",
-        AgentLogLevel.Warning  => "bi-exclamation-circle",
-        AgentLogLevel.Error    => "bi-x-circle",
+        AgentLogLevel.Success => "bi-check-circle",
+        AgentLogLevel.Warning => "bi-exclamation-circle",
+        AgentLogLevel.Error => "bi-x-circle",
         AgentLogLevel.Critical => "bi-shield-x",
-        AgentLogLevel.Debug    => "bi-bug",
+        AgentLogLevel.Debug => "bi-bug",
         _ => "bi-info-circle"
     };
 
     private static string RelTime(DateTime dt)
     {
-        var d = DateTime.UtcNow - dt;
-        return d.TotalSeconds < 60  ? "just now"
-             : d.TotalMinutes < 60  ? $"{(int)d.TotalMinutes}m ago"
-             : d.TotalHours   < 24  ? $"{(int)d.TotalHours}h ago"
+        var basis = dt.Kind == DateTimeKind.Utc ? DateTime.UtcNow : DateTime.Now;
+        var d = basis - dt;
+        return d.TotalSeconds < 60 ? "just now"
+             : d.TotalMinutes < 60 ? $"{(int)d.TotalMinutes}m ago"
+             : d.TotalHours < 24 ? $"{(int)d.TotalHours}h ago"
              : dt.ToString("MMM d");
     }
+
+    private sealed record CommandInsightVm(string Label, string Value, string Meta, string ValueClass, string Route);
+    private sealed record PipelineStageVm(string Label, int Count, string Icon, string Tone, string Meta, string Route);
+    private sealed record AgentLeaderboardVm(int Rank, string Name, string Provider, double SuccessRate, int Completed, decimal Cost);
+    private sealed record FailureClusterVm(string Message, int Count, int AgentsInvolved);
+    private sealed record ProviderHealthVm(string Name, string Model, string Meta, string State, string Tone);
+    private sealed record CostBreakdownVm(string Provider, decimal Cost, long Tokens, int TaskCount, string Meta);
+    private sealed record AnomalyAlertVm(string Title, string Meta, string State, string Tone, string Route);
+    private sealed record TrendPointVm(string Label, int Total, int TotalHeight, int FailedHeight, int CostHeight);
+    private sealed record SwarmInsightVm(string Name, string Strategy, int ActiveAgents, int TotalAgents, int SwarmTasks, int SpawnedChildren, int ApprovalsWaiting, string State, string Tone);
 }

@@ -11,7 +11,7 @@
 <div class="page-header">
     <div>
         <h1 class="page-title">Create Agent</h1>
-        <p class="page-subtitle">Configure a new AI agent for your workflow</p>
+        <p class="page-subtitle">Set up an agent, connect its model, and define how it should behave.</p>
     </div>
     <button class="btn btn-ghost" @onclick='() => Nav.NavigateTo("/agents")'>
         <i class="bi bi-arrow-left"></i> Back
@@ -29,17 +29,17 @@
         <div class="step-connector"></div>
         <div class="step-item @(currentStep >= 2 ? "step-item--done" : "") @(currentStep == 2 ? "step-item--active" : "")">
             <div class="step-num">@(currentStep > 2 ? "✓" : "2")</div>
-            <div class="step-label">LLM & Prompt</div>
+            <div class="step-label">Model</div>
         </div>
         <div class="step-connector"></div>
         <div class="step-item @(currentStep >= 3 ? "step-item--done" : "") @(currentStep == 3 ? "step-item--active" : "")">
             <div class="step-num">@(currentStep > 3 ? "✓" : "3")</div>
-            <div class="step-label">Memory & Tools</div>
+            <div class="step-label">Memory</div>
         </div>
         <div class="step-connector"></div>
         <div class="step-item @(currentStep >= 4 ? "step-item--done" : "") @(currentStep == 4 ? "step-item--active" : "")">
             <div class="step-num">@(currentStep > 4 ? "✓" : "4")</div>
-            <div class="step-label">Advanced</div>
+            <div class="step-label">Safety</div>
         </div>
         <div class="step-connector"></div>
         <div class="step-item @(currentStep >= 5 ? "step-item--active" : "")">
@@ -56,6 +56,7 @@
         {
             <div class="card card-pad">
                 <h3 class="section-title mb-4">Agent Basics</h3>
+                <p class="form-section-intro">Start with identity and intent. This is the information people will scan first in the fleet.</p>
 
                 <!-- Template picker -->
                 @if (templates.Any())
@@ -77,12 +78,17 @@
                                 </div>
                             }
                         </div>
+                        <div class="form-hint">
+                            <i class="bi bi-info-circle"></i>
+                            Templates prefill the prompt and defaults. You can still change everything later.
+                        </div>
                     </div>
                 }
 
                 <div class="form-group">
                     <label class="form-label">Agent Name <span class="text-error">*</span></label>
-                    <input class="form-input" @bind="agent.Name" placeholder="e.g. Invoice Validator #1" />
+                    <input class="form-input" @bind="agent.Name" placeholder="e.g. Invoice Validator" />
+                    <div class="form-hint">Choose a short, recognizable name that will still make sense in task history.</div>
                 </div>
 
                 <div class="form-group">
@@ -101,8 +107,8 @@
 
                 <div class="form-group">
                     <label class="form-label">Description</label>
-                    <textarea class="form-input" rows="2" @bind="agent.Description"
-                              placeholder="What does this agent do?"></textarea>
+                    <textarea class="form-input" rows="3" @bind="agent.Description"
+                              placeholder="Describe the job this agent owns and the kind of output you expect."></textarea>
                 </div>
 
                 <div class="form-row">
@@ -123,7 +129,8 @@
         @if (currentStep == 2)
         {
             <div class="card card-pad">
-                <h3 class="section-title mb-4">LLM Provider & System Prompt</h3>
+                <h3 class="section-title mb-4">Model & Prompt</h3>
+                <p class="form-section-intro">Pick where the agent runs, which provider it uses, and the exact instructions it should follow.</p>
 
                 <div class="form-group">
                     <label class="form-label">Execution Backend</label>
@@ -200,6 +207,7 @@
         {
             <div class="card card-pad">
                 <h3 class="section-title mb-4">Memory Configuration</h3>
+                <p class="form-section-intro">Decide what the agent should remember between runs and what capabilities it can use.</p>
 
                 <div class="toggle-group">
                     <div class="toggle-item">
@@ -237,6 +245,7 @@
 
             <div class="card card-pad mt-4">
                 <h3 class="section-title mb-4">Capability Skills</h3>
+                <p class="form-section-intro">Attach reusable skills that influence prompt framing, guardrails, and tool limits.</p>
                 @if (!skillsCatalog.Any())
                 {
                     <div class="text-muted text-sm">No skills are configured.</div>
@@ -279,6 +288,7 @@
 
             <div class="card card-pad mt-4">
                 <h3 class="section-title mb-4">Tools</h3>
+                <p class="form-section-intro">Only enable the capabilities this agent really needs. Fewer tools usually means safer behavior.</p>
                 <div class="tools-grid">
                     @foreach (var tool in availableTools)
                     {
@@ -304,6 +314,7 @@
         {
             <div class="card card-pad">
                 <h3 class="section-title mb-4">Resource Limits</h3>
+                <p class="form-section-intro">Set the cost, retry, and reliability guardrails that keep this agent predictable.</p>
                 <div class="form-row">
                     <div class="form-group">
                         <label class="form-label">Memory Limit (MB)</label>
@@ -372,6 +383,7 @@
             <!-- Summary -->
             <div class="card card-pad mt-4 agent-summary">
                 <h3 class="section-title mb-3">Summary</h3>
+                <p class="form-section-intro">Sanity-check the final setup before you move on to spawning configuration.</p>
                 <div class="summary-grid">
                     <div class="summary-item">
                         <span class="text-muted text-xs">Name</span>
@@ -419,6 +431,7 @@
         {
             <div class="card card-pad">
                 <h3 class="section-title mb-4">Dynamic Agent Spawning</h3>
+                <p class="form-section-intro">Configure whether this agent should break work into smaller child tasks at runtime.</p>
                 <div class="toggle-item mb-4">
                     <div>
                         <div class="toggle-label">Enable Dynamic Spawning</div>
