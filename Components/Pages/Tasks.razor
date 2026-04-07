@@ -11,7 +11,7 @@
 <div class="page-header">
     <div>
         <h1 class="page-title">Tasks</h1>
-        <p class="page-subtitle">Agent task queue &amp; execution history</p>
+        <p class="page-subtitle">Review the queue, pending approvals, and recent execution history.</p>
     </div>
 </div>
 
@@ -134,6 +134,21 @@ else
                         {
                             <button class="btn btn-ghost btn-sm" @onclick="() => ReplayTask(selectedTask)" disabled="@isReplaying">
                                 <i class="bi bi-arrow-repeat"></i> @(isReplaying ? "Replaying..." : "Replay")
+                            </button>
+                        }
+                        @if (taskPendingDeleteId == selectedTask.Id)
+                        {
+                            <button class="btn btn-danger btn-sm" @onclick="() => DeleteTask(selectedTask.Id)">
+                                <i class="bi bi-trash"></i> Confirm Delete
+                            </button>
+                            <button class="btn btn-ghost btn-sm" @onclick="ClearDeletePrompt">
+                                Cancel
+                            </button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-ghost btn-sm text-error" @onclick="() => PromptDelete(selectedTask.Id)">
+                                <i class="bi bi-trash"></i> Delete
                             </button>
                         }
                         <button class="btn btn-ghost btn-sm task-detail-close" @onclick="() => selectedTask = null"><i class="bi bi-x-lg"></i></button>
@@ -311,6 +326,7 @@ else
     private string searchQuery = "";
     private TaskPriority? prioFilter;
     private string approvalCommentDraft = "";
+    private string? taskPendingDeleteId;
     private bool isReplaying;
     private Timer? _timer;
 
@@ -402,6 +418,7 @@ else
     {
         selectedTask = selectedTask?.Id == task.Id ? null : task;
         approvalCommentDraft = selectedTask?.ApprovalComment ?? "";
+        taskPendingDeleteId = null;
     }
 
     private async Task ApproveTask(string id)
@@ -451,12 +468,38 @@ else
         }
     }
 
+    private void PromptDelete(string id)
+    {
+        taskPendingDeleteId = id;
+    }
+
+    private void ClearDeletePrompt()
+    {
+        taskPendingDeleteId = null;
+    }
+
+    private async Task DeleteTask(string id)
+    {
+        await TaskService.DeleteTaskAsync(id);
+        taskPendingDeleteId = null;
+        approvalCommentDraft = "";
+
+        if (selectedTask?.Id == id)
+            selectedTask = null;
+
+        await LoadAsync();
+
+        if (selectedTask == null && filtered.Any())
+            selectedTask = filtered.First();
+    }
+
     private void ReviewPendingTask(AgentTask task)
     {
         activeTab = "pending";
         ApplyFilter();
         selectedTask = task;
         approvalCommentDraft = task.ApprovalComment ?? "";
+        taskPendingDeleteId = null;
     }
 
     private static List<string> GetSnapshotNames(string? json)

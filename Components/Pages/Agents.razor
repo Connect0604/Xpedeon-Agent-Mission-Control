@@ -10,9 +10,9 @@
 <div class="page-header">
     <div>
         <h1 class="page-title">Agents</h1>
-        <p class="page-subtitle">@filtered.Count of @allAgents.Count agents shown</p>
+        <p class="page-subtitle">Browse the fleet, filter by status, and inspect each agent's current workload.</p>
     </div>
-    <div style="display:flex;gap:var(--s2);">
+    <div class="page-actions">
         <button class="btn btn-ghost" @onclick='() => NavManager.NavigateTo("/templates")'>
             <i class="bi bi-layout-text-window"></i> Templates
         </button>
@@ -38,7 +38,7 @@
         </button>
     }
 
-    <div style="margin-left:auto; display:flex; gap:var(--s2);">
+    <div class="filter-actions">
         <button class="btn btn-ghost btn-sm @(viewMode == "grid" ? "btn-primary" : "")"
                 @onclick='() => viewMode = "grid"'>
             <i class="bi bi-grid-3x2-gap"></i>
