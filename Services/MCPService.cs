@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net.WebSockets;
 using System.Text;
@@ -15,6 +16,10 @@ public class MCPConnectionTestResult
     public string? ServerName { get; set; }
     public string? ServerVersion { get; set; }
     public int ToolCount { get; set; }
+    public bool AuthRequired { get; set; }
+    public string? AuthScheme { get; set; }
+    public string? ResourceMetadataUrl { get; set; }
+    public string? SuggestedAuthMode { get; set; }
 }
 
 public class MCPToolInfo
@@ -42,9 +47,34 @@ public class MCPToolCallResult
     public string Trace { get; set; } = string.Empty;
 }
 
+public class MCPDeviceCodeStartResult
+{
+    public bool Success { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public string? VerificationUri { get; set; }
+    public string? UserCode { get; set; }
+    public string? DeviceCode { get; set; }
+    public int IntervalSeconds { get; set; }
+    public DateTimeOffset? ExpiresAtUtc { get; set; }
+    public string? TokenEndpoint { get; set; }
+    public string? Scope { get; set; }
+    public string? Authority { get; set; }
+    public string? ClientId { get; set; }
+}
+
+public class MCPDeviceCodePollResult
+{
+    public bool Success { get; set; }
+    public bool Pending { get; set; }
+    public string Message { get; set; } = string.Empty;
+    public string? AccessToken { get; set; }
+    public DateTimeOffset? ExpiresAtUtc { get; set; }
+}
+
 public class MCPService
 {
     private const string ProtocolVersion = "2025-03-26";
+    private const string AzureCliClientId = "04b07795-8ddb-461a-bbee-02f9e1bf7b46";
     private static readonly TimeSpan ConnectionTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan ToolInvocationTimeout = TimeSpan.FromSeconds(90);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -55,6 +85,142 @@ public class MCPService
     {
         _httpClientFactory = httpClientFactory;
         _logger = logger;
+    }
+
+    public async Task<MCPDeviceCodeStartResult> StartMicrosoftDeviceCodeAuthAsync(MCPServer server, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            if (server.TransportType != MCPTransportType.Http)
+            {
+                return new MCPDeviceCodeStartResult
+                {
+                    Success = false,
+                    Message = "Microsoft sign-in is currently supported for HTTP MCP servers only."
+                };
+            }
+
+            using var timeoutCts = CreateTimeoutCancellation(ConnectionTimeout, cancellationToken);
+            var authMetadata = await DiscoverProtectedResourceMetadataAsync(server, timeoutCts.Token);
+            if (string.IsNullOrWhiteSpace(authMetadata.DeviceAuthorizationEndpoint))
+            {
+                return new MCPDeviceCodeStartResult
+                {
+                    Success = false,
+                    Message = "The MCP server did not advertise a device authorization endpoint."
+                };
+            }
+
+            var client = _httpClientFactory.CreateClient();
+            using var response = await client.PostAsync(
+                authMetadata.DeviceAuthorizationEndpoint,
+                new FormUrlEncodedContent(new Dictionary<string, string>
+                {
+                    ["client_id"] = authMetadata.ClientId,
+                    ["scope"] = authMetadata.Scope
+                }),
+                timeoutCts.Token);
+
+            var payload = await response.Content.ReadAsStringAsync(timeoutCts.Token);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException(BuildHttpFailureMessage(response.StatusCode, payload, "Unable to start Microsoft sign-in."));
+
+            using var document = JsonDocument.Parse(payload);
+            var root = document.RootElement;
+
+            return new MCPDeviceCodeStartResult
+            {
+                Success = true,
+                Message = root.TryGetProperty("message", out var message) ? message.GetString() ?? "Complete sign-in in your browser, then click Check Sign-In." : "Complete sign-in in your browser, then click Check Sign-In.",
+                VerificationUri = GetString(root, "verification_uri") ?? GetString(root, "verification_url"),
+                UserCode = GetString(root, "user_code"),
+                DeviceCode = GetString(root, "device_code"),
+                IntervalSeconds = GetInt(root, "interval") ?? 5,
+                ExpiresAtUtc = DateTimeOffset.UtcNow.AddSeconds(GetInt(root, "expires_in") ?? 900),
+                TokenEndpoint = authMetadata.TokenEndpoint,
+                Scope = authMetadata.Scope,
+                Authority = authMetadata.Authority,
+                ClientId = authMetadata.ClientId
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to start Microsoft device code auth for {ServerName}", server.Name);
+            return new MCPDeviceCodeStartResult
+            {
+                Success = false,
+                Message = ex.Message
+            };
+        }
+    }
+
+    public async Task<MCPDeviceCodePollResult> PollMicrosoftDeviceCodeAuthAsync(
+        string tokenEndpoint,
+        string deviceCode,
+        string clientId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var timeoutCts = CreateTimeoutCancellation(ConnectionTimeout, cancellationToken);
+            var client = _httpClientFactory.CreateClient();
+            using var response = await client.PostAsync(
+                tokenEndpoint,
+                new FormUrlEncodedContent(new Dictionary<string, string>
+                {
+                    ["grant_type"] = "urn:ietf:params:oauth:grant-type:device_code",
+                    ["device_code"] = deviceCode,
+                    ["client_id"] = clientId
+                }),
+                timeoutCts.Token);
+
+            var payload = await response.Content.ReadAsStringAsync(timeoutCts.Token);
+            using var document = JsonDocument.Parse(payload);
+            var root = document.RootElement;
+
+            if (response.IsSuccessStatusCode)
+            {
+                var expiresIn = GetInt(root, "expires_in") ?? 3600;
+                return new MCPDeviceCodePollResult
+                {
+                    Success = true,
+                    Message = "Microsoft sign-in completed successfully.",
+                    AccessToken = GetString(root, "access_token"),
+                    ExpiresAtUtc = DateTimeOffset.UtcNow.AddSeconds(expiresIn)
+                };
+            }
+
+            var errorCode = GetString(root, "error");
+            var description = GetString(root, "error_description") ?? "Microsoft sign-in did not complete.";
+
+            return errorCode switch
+            {
+                "authorization_pending" => new MCPDeviceCodePollResult
+                {
+                    Pending = true,
+                    Message = "Waiting for you to finish the Microsoft sign-in in your browser."
+                },
+                "slow_down" => new MCPDeviceCodePollResult
+                {
+                    Pending = true,
+                    Message = "Microsoft asked us to slow down. Wait a few seconds, then check again."
+                },
+                _ => new MCPDeviceCodePollResult
+                {
+                    Success = false,
+                    Message = description
+                }
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to complete Microsoft device code auth");
+            return new MCPDeviceCodePollResult
+            {
+                Success = false,
+                Message = ex.Message
+            };
+        }
     }
 
     public async Task<MCPConnectionTestResult> TestConnectionAsync(MCPServer server, CancellationToken cancellationToken = default)
@@ -105,6 +271,19 @@ public class MCPService
                 Message = $"Connection timed out after {ConnectionTimeout.TotalSeconds:0} seconds. Verify the endpoint launches an MCP server and responds to initialize."
             };
         }
+        catch (MCPAuthChallengeException ex)
+        {
+            _logger.LogInformation("MCP auth challenge received for {ServerName}: {ResourceMetadataUrl}", server.Name, ex.ResourceMetadataUrl);
+            return new MCPConnectionTestResult
+            {
+                Success = false,
+                AuthRequired = true,
+                AuthScheme = ex.Scheme,
+                ResourceMetadataUrl = ex.ResourceMetadataUrl,
+                SuggestedAuthMode = "MicrosoftDeviceCode",
+                Message = BuildAuthChallengeMessage(ex)
+            };
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "MCP test connection failed for {ServerName}", server.Name);
@@ -153,6 +332,15 @@ public class MCPService
             {
                 Success = false,
                 Message = $"Tool discovery timed out after {ConnectionTimeout.TotalSeconds:0} seconds. The configured endpoint may not be speaking MCP."
+            };
+        }
+        catch (MCPAuthChallengeException ex)
+        {
+            _logger.LogInformation("MCP auth challenge received while listing tools for {ServerName}: {ResourceMetadataUrl}", server.Name, ex.ResourceMetadataUrl);
+            return new MCPToolDiscoveryResult
+            {
+                Success = false,
+                Message = BuildAuthChallengeMessage(ex)
             };
         }
         catch (Exception ex)
@@ -309,8 +497,176 @@ public class MCPService
     {
         var client = _httpClientFactory.CreateClient();
         if (!string.IsNullOrWhiteSpace(server.AuthToken))
+        {
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", server.AuthToken);
+        }
         return client;
+    }
+
+    private async Task<MCPProtectedResourceMetadata> DiscoverProtectedResourceMetadataAsync(MCPServer server, CancellationToken cancellationToken)
+    {
+        var client = _httpClientFactory.CreateClient();
+        var challenge = await GetHttpAuthChallengeAsync(server.Endpoint, cancellationToken);
+        if (string.IsNullOrWhiteSpace(challenge.ResourceMetadataUrl))
+            throw new InvalidOperationException("The MCP server requires authentication but did not publish resource metadata.");
+
+        using var metadataResponse = await client.GetAsync(challenge.ResourceMetadataUrl, cancellationToken);
+        var metadataPayload = await metadataResponse.Content.ReadAsStringAsync(cancellationToken);
+        if (!metadataResponse.IsSuccessStatusCode)
+            throw new InvalidOperationException(BuildHttpFailureMessage(metadataResponse.StatusCode, metadataPayload, "Unable to read protected resource metadata."));
+
+        using var metadataDoc = JsonDocument.Parse(metadataPayload);
+        var metadataRoot = metadataDoc.RootElement;
+
+        var authority = metadataRoot.TryGetProperty("authorization_servers", out var authServers) && authServers.ValueKind == JsonValueKind.Array
+            ? authServers.EnumerateArray().Select(x => x.GetString()).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x))
+            : null;
+        var scope = metadataRoot.TryGetProperty("scopes_supported", out var scopes) && scopes.ValueKind == JsonValueKind.Array
+            ? scopes.EnumerateArray().Select(x => x.GetString()).FirstOrDefault(x => !string.IsNullOrWhiteSpace(x))
+            : null;
+
+        authority ??= server.OAuthAuthority;
+        scope ??= server.OAuthScope;
+
+        if (string.IsNullOrWhiteSpace(authority))
+            throw new InvalidOperationException("The MCP server did not advertise an authorization server.");
+
+        if (string.IsNullOrWhiteSpace(scope))
+            throw new InvalidOperationException("The MCP server did not advertise any supported OAuth scopes.");
+
+        using var openIdResponse = await client.GetAsync(BuildOpenIdConfigurationUrl(authority), cancellationToken);
+        var openIdPayload = await openIdResponse.Content.ReadAsStringAsync(cancellationToken);
+        if (!openIdResponse.IsSuccessStatusCode)
+            throw new InvalidOperationException(BuildHttpFailureMessage(openIdResponse.StatusCode, openIdPayload, "Unable to read authorization server metadata."));
+
+        using var openIdDoc = JsonDocument.Parse(openIdPayload);
+        var openIdRoot = openIdDoc.RootElement;
+        var tokenEndpoint = GetString(openIdRoot, "token_endpoint");
+        var deviceAuthorizationEndpoint = GetString(openIdRoot, "device_authorization_endpoint");
+
+        if (string.IsNullOrWhiteSpace(tokenEndpoint))
+            throw new InvalidOperationException("The authorization server did not provide a token endpoint.");
+
+        return new MCPProtectedResourceMetadata
+        {
+            Authority = authority,
+            Scope = scope,
+            TokenEndpoint = tokenEndpoint,
+            DeviceAuthorizationEndpoint = deviceAuthorizationEndpoint,
+            ClientId = string.IsNullOrWhiteSpace(server.OAuthClientId) ? AzureCliClientId : server.OAuthClientId!,
+            ResourceMetadataUrl = challenge.ResourceMetadataUrl
+        };
+    }
+
+    private async Task<MCPAuthChallengeException> GetHttpAuthChallengeAsync(string endpoint, CancellationToken cancellationToken)
+    {
+        var client = _httpClientFactory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
+            Content = new StringContent(CreatePayload("initialize", new
+            {
+                protocolVersion = ProtocolVersion,
+                capabilities = new { },
+                clientInfo = new
+                {
+                    name = "XpedeonAgentMissionControl",
+                    version = "1.0.0"
+                }
+            }, isNotification: false), Encoding.UTF8, "application/json")
+        };
+
+        request.Headers.TryAddWithoutValidation("Accept", "application/json, text/event-stream");
+        request.Headers.TryAddWithoutValidation("MCP-Protocol-Version", ProtocolVersion);
+
+        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (response.StatusCode != System.Net.HttpStatusCode.Unauthorized)
+        {
+            var payload = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new InvalidOperationException(BuildHttpFailureMessage(response.StatusCode, payload, "The MCP endpoint did not return an OAuth challenge."));
+        }
+
+        var scheme = response.Headers.WwwAuthenticate.FirstOrDefault()?.Scheme ?? "Bearer";
+        var resourceMetadataUrl = response.Headers.WwwAuthenticate
+            .SelectMany(header => header.Parameter is null
+                ? Array.Empty<string>()
+                : ExtractAuthParameters(header.Parameter))
+            .Select(ParseAuthParameter)
+            .FirstOrDefault(pair => pair.Key.Equals("resource_metadata", StringComparison.OrdinalIgnoreCase))
+            .Value;
+
+        return new MCPAuthChallengeException(scheme, resourceMetadataUrl);
+    }
+
+    private static string BuildOpenIdConfigurationUrl(string authority)
+    {
+        var trimmed = authority.TrimEnd('/');
+        return $"{trimmed}/.well-known/openid-configuration";
+    }
+
+    private static string BuildAuthChallengeMessage(MCPAuthChallengeException ex)
+    {
+        if (!string.IsNullOrWhiteSpace(ex.ResourceMetadataUrl))
+            return $"Authentication required by the remote MCP server. Use Microsoft sign-in to complete the OAuth flow. Resource metadata: {ex.ResourceMetadataUrl}";
+
+        return "Authentication required by the remote MCP server. Use Microsoft sign-in to complete the OAuth flow.";
+    }
+
+    private static string BuildHttpFailureMessage(System.Net.HttpStatusCode statusCode, string payload, string fallback)
+    {
+        var details = TryExtractOAuthErrorDescription(payload);
+        return string.IsNullOrWhiteSpace(details)
+            ? $"{fallback} Response status code was {(int)statusCode} ({statusCode})."
+            : $"{fallback} {details}";
+    }
+
+    private static string? TryExtractOAuthErrorDescription(string payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+            return null;
+
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            var root = document.RootElement;
+            return GetString(root, "error_description") ?? GetString(root, "message") ?? GetString(root, "error");
+        }
+        catch
+        {
+            return payload.Length > 300 ? payload[..300] : payload;
+        }
+    }
+
+    private static IEnumerable<string> ExtractAuthParameters(string parameter)
+        => parameter.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static KeyValuePair<string, string?> ParseAuthParameter(string part)
+    {
+        var pieces = part.Split('=', 2);
+        var key = pieces[0].Trim();
+        var value = pieces.Length > 1 ? pieces[1].Trim().Trim('"') : null;
+        return new KeyValuePair<string, string?>(key, value);
+    }
+
+    private static string? GetString(JsonElement element, string propertyName)
+        => element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    private static int? GetInt(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value))
+            return null;
+
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var intValue))
+            return intValue;
+
+        if (value.ValueKind == JsonValueKind.String &&
+            int.TryParse(value.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out intValue))
+        {
+            return intValue;
+        }
+
+        return null;
     }
 
     private static string ExtractToolResultText(JsonElement result)
@@ -369,6 +725,9 @@ public class MCPService
         {
             using var request = CreateRequest(payload);
             using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                throw CreateAuthChallenge(response);
+
             response.EnsureSuccessStatusCode();
             CaptureSessionId(response);
             return await ReadJsonRpcResponseAsync(response, cancellationToken);
@@ -378,6 +737,9 @@ public class MCPService
         {
             using var request = CreateRequest(payload);
             using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                throw CreateAuthChallenge(response);
+
             response.EnsureSuccessStatusCode();
             CaptureSessionId(response);
         }
@@ -405,6 +767,19 @@ public class MCPService
             {
                 _sessionId = sessionId;
             }
+        }
+
+        private static MCPAuthChallengeException CreateAuthChallenge(HttpResponseMessage response)
+        {
+            var header = response.Headers.WwwAuthenticate.FirstOrDefault();
+            var resourceMetadataUrl = header?.Parameter is null
+                ? null
+                : ExtractAuthParameters(header.Parameter)
+                    .Select(ParseAuthParameter)
+                    .FirstOrDefault(pair => pair.Key.Equals("resource_metadata", StringComparison.OrdinalIgnoreCase))
+                    .Value;
+
+            return new MCPAuthChallengeException(header?.Scheme ?? "Bearer", resourceMetadataUrl);
         }
 
         private static bool TryGetHeader(HttpResponseMessage response, string headerName, out string? value)
@@ -699,5 +1074,28 @@ public class MCPService
                        : m.Groups[3].Value)
             .Where(s => !string.IsNullOrWhiteSpace(s))
             .ToList();
+    }
+
+    private sealed class MCPProtectedResourceMetadata
+    {
+        public string Authority { get; set; } = string.Empty;
+        public string Scope { get; set; } = string.Empty;
+        public string TokenEndpoint { get; set; } = string.Empty;
+        public string? DeviceAuthorizationEndpoint { get; set; }
+        public string ClientId { get; set; } = AzureCliClientId;
+        public string? ResourceMetadataUrl { get; set; }
+    }
+
+    private sealed class MCPAuthChallengeException : Exception
+    {
+        public MCPAuthChallengeException(string scheme, string? resourceMetadataUrl)
+            : base("Authentication required by the remote MCP server.")
+        {
+            Scheme = scheme;
+            ResourceMetadataUrl = resourceMetadataUrl;
+        }
+
+        public string Scheme { get; }
+        public string? ResourceMetadataUrl { get; }
     }
 }
