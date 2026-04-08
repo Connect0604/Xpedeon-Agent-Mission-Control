@@ -91,13 +91,38 @@ else
                     </select>
                 </div>
                 <div class="form-group">
+                    <label class="form-label">Authentication</label>
+                    <select class="form-input" @bind="form.AuthMode">
+                        @foreach (var mode in Enum.GetValues<MCPAuthMode>())
+                        {
+                            <option value="@mode">@mode</option>
+                        }
+                    </select>
+                </div>
+                @if (form.AuthMode == MCPAuthMode.BearerToken)
+                {
+                    <div class="form-group">
+                        <label class="form-label">Auth Token <span class="text-muted text-xs">(optional)</span></label>
+                        <input class="form-input font-mono" type="password" @bind="form.AuthToken" placeholder="Bearer token..." />
+                    </div>
+                }
+                @if (form.AuthMode == MCPAuthMode.MicrosoftDeviceCode)
+                {
+                    <div class="form-group">
+                        <label class="form-label">OAuth Client Id</label>
+                        <input class="form-input font-mono" @bind="form.OAuthClientId" placeholder="Uses Azure CLI public client by default" />
+                    </div>
+                    @if (form.AuthTokenExpiresAtUtc != null)
+                    {
+                        <div class="text-xs text-muted mt-n1 mb-2">
+                            Microsoft access token cached until @form.AuthTokenExpiresAtUtc?.ToLocalTime().ToString("g")
+                        </div>
+                    }
+                }
+                <div class="form-group">
                     <label class="form-label">Endpoint <span class="text-error">*</span></label>
                     <input class="form-input font-mono" @bind="form.Endpoint"
                            placeholder="@EndpointPlaceholder(form.TransportType)" />
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Auth Token <span class="text-muted text-xs">(optional)</span></label>
-                    <input class="form-input font-mono" type="password" @bind="form.AuthToken" placeholder="Bearer token..." />
                 </div>
                 <div class="form-row">
                     <label class="form-check">
@@ -110,6 +135,15 @@ else
                     </label>
                 </div>
                 <div class="form-actions mt-3">
+                    @if (form.TransportType == MCPTransportType.Http && form.AuthMode == MCPAuthMode.MicrosoftDeviceCode)
+                    {
+                        <button class="btn btn-ghost" type="button" @onclick="StartMicrosoftSignIn" disabled="@isStartingMicrosoftAuth">
+                            @(isStartingMicrosoftAuth ? "Starting Sign-In..." : "Sign in with Microsoft")
+                        </button>
+                        <button class="btn btn-ghost" type="button" @onclick="CheckMicrosoftSignIn" disabled="@(!CanCheckMicrosoftAuth)">
+                            @(isCheckingMicrosoftAuth ? "Checking..." : "Check Sign-In")
+                        </button>
+                    }
                     <button class="btn btn-ghost" type="button" @onclick="TestConnection" disabled="@isTesting">
                         @(isTesting ? "Testing..." : "Test Connection")
                     </button>
@@ -117,6 +151,19 @@ else
                         @(isListingTools ? "Loading Tools..." : "List Tools")
                     </button>
                 </div>
+                @if (!string.IsNullOrWhiteSpace(microsoftAuthMessage))
+                {
+                    <div class="alert alert-success mt-3">@microsoftAuthMessage</div>
+                }
+                @if (microsoftAuthSession != null)
+                {
+                    <div class="card card-pad mt-3">
+                        <div class="section-title mb-2">Microsoft Sign-In</div>
+                        <div class="text-sm">Open <a href="@microsoftAuthSession.VerificationUri" target="_blank">@microsoftAuthSession.VerificationUri</a></div>
+                        <div class="text-sm mt-2">Code: <span class="font-mono">@microsoftAuthSession.UserCode</span></div>
+                        <div class="text-xs text-muted mt-2">After completing the sign-in in your browser, click <strong>Check Sign-In</strong>.</div>
+                    </div>
+                }
                 @if (!string.IsNullOrWhiteSpace(testSuccessMsg))
                 {
                     <div class="alert alert-success mt-3">@testSuccessMsg</div>
@@ -230,16 +277,20 @@ else
     private bool isTesting;
     private bool isListingTools;
     private bool isRunningTool;
+    private bool isStartingMicrosoftAuth;
+    private bool isCheckingMicrosoftAuth;
     private string? editingId;
     private string? deletingId;
     private string errorMsg = "";
     private string testSuccessMsg = "";
+    private string microsoftAuthMessage = "";
     private List<MCPToolInfo> discoveredTools = new();
     private MCPToolInfo? selectedTool;
     private string toolArgumentsJson = "{}";
     private string toolRunOutput = "";
     private string toolRunTrace = "";
     private string toolRunError = "";
+    private MCPDeviceCodeStartResult? microsoftAuthSession;
     private MCPServer form = new() { IsEnabled = true };
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
@@ -254,7 +305,8 @@ else
     private void OpenCreate()
     {
         editingId = null;
-        form = new MCPServer { IsEnabled = true };
+        form = new MCPServer { IsEnabled = true, AuthMode = MCPAuthMode.None };
+        ApplyDefaultAuthMode();
         ResetProbeState();
         showModal = true;
     }
@@ -266,8 +318,15 @@ else
         {
             Id = s.Id, Name = s.Name, Description = s.Description,
             Endpoint = s.Endpoint, TransportType = s.TransportType,
-            AuthToken = s.AuthToken, IsGlobal = s.IsGlobal, IsEnabled = s.IsEnabled
+            AuthMode = s.AuthMode,
+            AuthToken = s.AuthToken,
+            OAuthClientId = s.OAuthClientId,
+            OAuthAuthority = s.OAuthAuthority,
+            OAuthScope = s.OAuthScope,
+            AuthTokenExpiresAtUtc = s.AuthTokenExpiresAtUtc,
+            IsGlobal = s.IsGlobal, IsEnabled = s.IsEnabled
         };
+        ApplyDefaultAuthMode();
         ResetProbeState();
         showModal = true;
     }
@@ -279,6 +338,9 @@ else
     {
         if (string.IsNullOrWhiteSpace(form.Name)) { errorMsg = "Name is required."; return; }
         if (string.IsNullOrWhiteSpace(form.Endpoint)) { errorMsg = "Endpoint is required."; return; }
+
+        if (form.AuthMode == MCPAuthMode.None)
+            form.AuthToken = null;
 
         isSaving = true;
         try
@@ -306,6 +368,7 @@ else
     {
         errorMsg = "";
         testSuccessMsg = "";
+        microsoftAuthMessage = "";
         discoveredTools.Clear();
 
         if (string.IsNullOrWhiteSpace(form.Name)) { errorMsg = "Name is required."; return; }
@@ -342,6 +405,7 @@ else
     {
         errorMsg = "";
         testSuccessMsg = "";
+        microsoftAuthMessage = "";
         discoveredTools.Clear();
         ClearToolRunner();
 
@@ -444,6 +508,99 @@ else
         }
     }
 
+    private bool CanCheckMicrosoftAuth =>
+        !isCheckingMicrosoftAuth &&
+        microsoftAuthSession != null &&
+        !string.IsNullOrWhiteSpace(microsoftAuthSession.DeviceCode) &&
+        !string.IsNullOrWhiteSpace(microsoftAuthSession.TokenEndpoint) &&
+        !string.IsNullOrWhiteSpace(microsoftAuthSession.ClientId);
+
+    private async Task StartMicrosoftSignIn()
+    {
+        errorMsg = "";
+        testSuccessMsg = "";
+        microsoftAuthMessage = "";
+
+        if (string.IsNullOrWhiteSpace(form.Endpoint))
+        {
+            errorMsg = "Endpoint is required.";
+            return;
+        }
+
+        isStartingMicrosoftAuth = true;
+        try
+        {
+            var result = await MCPService.StartMicrosoftDeviceCodeAuthAsync(form);
+            if (!result.Success)
+            {
+                errorMsg = result.Message;
+                return;
+            }
+
+            microsoftAuthSession = result;
+            form.AuthMode = MCPAuthMode.MicrosoftDeviceCode;
+            form.OAuthClientId = result.ClientId;
+            form.OAuthAuthority = result.Authority;
+            form.OAuthScope = result.Scope;
+            microsoftAuthMessage = result.Message;
+        }
+        catch (Exception ex)
+        {
+            errorMsg = ex.Message;
+        }
+        finally
+        {
+            isStartingMicrosoftAuth = false;
+        }
+    }
+
+    private async Task CheckMicrosoftSignIn()
+    {
+        errorMsg = "";
+        testSuccessMsg = "";
+
+        if (!CanCheckMicrosoftAuth || microsoftAuthSession == null)
+        {
+            errorMsg = "Start Microsoft sign-in first.";
+            return;
+        }
+
+        isCheckingMicrosoftAuth = true;
+        try
+        {
+            var result = await MCPService.PollMicrosoftDeviceCodeAuthAsync(
+                microsoftAuthSession.TokenEndpoint!,
+                microsoftAuthSession.DeviceCode!,
+                microsoftAuthSession.ClientId!);
+
+            if (result.Success)
+            {
+                form.AuthToken = result.AccessToken;
+                form.AuthTokenExpiresAtUtc = result.ExpiresAtUtc?.UtcDateTime;
+                microsoftAuthMessage = $"Microsoft sign-in completed. Token valid until {form.AuthTokenExpiresAtUtc?.ToLocalTime():g}.";
+                microsoftAuthSession = null;
+                return;
+            }
+
+            if (result.Pending)
+            {
+                microsoftAuthMessage = result.Message;
+            }
+            else
+            {
+                errorMsg = result.Message;
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMsg = ex.Message;
+        }
+        finally
+        {
+            isCheckingMicrosoftAuth = false;
+        }
+    }
+
     private async Task Delete()
     {
         if (deletingId == null) return;
@@ -467,9 +624,33 @@ else
     {
         errorMsg = "";
         testSuccessMsg = "";
+        microsoftAuthMessage = "";
+        microsoftAuthSession = null;
         discoveredTools.Clear();
         ClearToolRunner();
     }
+
+    private void ApplyDefaultAuthMode()
+    {
+        if (form.TransportType != MCPTransportType.Http)
+        {
+            form.AuthMode = string.IsNullOrWhiteSpace(form.AuthToken) ? MCPAuthMode.None : MCPAuthMode.BearerToken;
+            return;
+        }
+
+        if (IsAzureDevOpsRemoteMcp(form.Endpoint))
+        {
+            form.AuthMode = MCPAuthMode.MicrosoftDeviceCode;
+            return;
+        }
+
+        form.AuthMode = string.IsNullOrWhiteSpace(form.AuthToken) ? MCPAuthMode.None : MCPAuthMode.BearerToken;
+    }
+
+    private static bool IsAzureDevOpsRemoteMcp(string? endpoint)
+        => !string.IsNullOrWhiteSpace(endpoint) &&
+           Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) &&
+           uri.Host.Equals("mcp.dev.azure.com", StringComparison.OrdinalIgnoreCase);
 
     private static Dictionary<string, object?> ParseArguments(string json)
     {
