@@ -1,0 +1,488 @@
+@page "/external-packages"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@using System.Text.Json
+@using XpedeonAgentMissionControl.Data
+@inject ExternalSkillPackageService PackageService
+@inject IDbContextFactory<AppDbContext> DbFactory
+
+<PageTitle>External Packages - Xpedeon AMC</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">External Skill Packages</h1>
+        <p class="page-subtitle">Import GitHub-hosted MCP packages or Codex/Claude skill repos, then review and activate them in Mission Control.</p>
+    </div>
+    <button class="btn btn-primary" @onclick="OpenImportModal">
+        <i class="bi bi-github"></i> Import Package
+    </button>
+</div>
+
+@if (!packages.Any())
+{
+    <div class="card card-pad empty-state">
+        <div class="empty-icon"><i class="bi bi-box-seam"></i></div>
+        <div class="empty-title">No external packages imported</div>
+        <div class="empty-desc">Bring in a manifest-based MCP package or a `SKILL.md` repo, review it, and activate the right capability path.</div>
+        <button class="btn btn-primary mt-4" @onclick="OpenImportModal">
+            <i class="bi bi-github"></i> Import your first package
+        </button>
+    </div>
+}
+else
+{
+    <div class="learning-kpi-row">
+        <div class="learning-kpi">
+            <div class="learning-kpi__val">@packages.Count</div>
+            <div class="learning-kpi__lbl">Imported</div>
+        </div>
+        <div class="learning-kpi">
+            <div class="learning-kpi__val">@packages.Count(p => p.ApprovalStatus == ExternalSkillPackageApprovalStatus.PendingReview)</div>
+            <div class="learning-kpi__lbl">Pending Review</div>
+        </div>
+        <div class="learning-kpi">
+            <div class="learning-kpi__val">@packages.Count(p => p.InstallStatus == ExternalSkillPackageInstallStatus.Healthy)</div>
+            <div class="learning-kpi__lbl">Healthy</div>
+        </div>
+        <div class="learning-kpi">
+            <div class="learning-kpi__val">@packages.Count(p => p.IsEnabled)</div>
+            <div class="learning-kpi__lbl">Enabled</div>
+        </div>
+    </div>
+
+    <div class="eval-grid mt-4">
+        @foreach (var package in packages)
+        {
+            var view = packageViews.TryGetValue(package.Id, out var details) ? details : null;
+            <div class="card card-pad eval-card">
+                <div class="eval-card__head">
+                    <div>
+                        <div class="section-head"><i class="bi bi-box-seam"></i> @package.Name</div>
+                        <div class="text-sm text-secondary mt-1">@package.Description</div>
+                    </div>
+                    <div style="display:flex;gap:var(--s2);flex-wrap:wrap;justify-content:flex-end;align-items:flex-start;">
+                        <span class="tag">@package.Version</span>
+                        <span class="tag">@package.Kind</span>
+                        <span class="@BadgeClass(package.ApprovalStatus)">@package.ApprovalStatus</span>
+                        <span class="@BadgeClass(package.InstallStatus)">@package.InstallStatus</span>
+                        @if (package.IsEnabled)
+                        {
+                            <span class="badge badge-accent">Enabled</span>
+                        }
+                    </div>
+                </div>
+
+                <div class="token-stats mt-4">
+                    <div class="token-stat">
+                        <span class="text-muted text-xs">Mode</span>
+                        <span>@(package.Kind == ExternalSkillPackageKind.ManagedMcp ? package.RuntimeTransportType.ToString() : "Skill-only")</span>
+                    </div>
+                    <div class="token-stat">
+                        <span class="text-muted text-xs">Source</span>
+                        <span class="font-mono">@package.SourceRepo</span>
+                    </div>
+                    <div class="token-stat">
+                        <span class="text-muted text-xs">Ref</span>
+                        <span class="font-mono">@package.SourceRef</span>
+                    </div>
+                    <div class="token-stat">
+                        <span class="text-muted text-xs">Last Sync</span>
+                        <span>@package.LastSyncAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</span>
+                    </div>
+                    <div class="token-stat">
+                        <span class="text-muted text-xs">Last Health</span>
+                        <span>@(package.LastHealthCheckAt?.ToLocalTime().ToString("dd MMM yyyy HH:mm") ?? "Not run")</span>
+                    </div>
+                </div>
+
+                <div class="mt-4">
+                    <label class="form-label text-xs text-muted">Source Path</label>
+                    <div class="output-box font-mono text-xs">@package.ManifestPath</div>
+                </div>
+
+                <div class="mt-4">
+                    <label class="form-label text-xs text-muted">Runtime Endpoint / Command</label>
+                    <div class="output-box font-mono text-xs">@package.RuntimeEndpoint</div>
+                </div>
+
+                @if (view != null)
+                {
+                    <div class="mt-4">
+                        <label class="form-label text-xs text-muted">Declared Tools</label>
+                        @if (view.DeclaredTools.Any())
+                        {
+                            <div style="display:flex;flex-wrap:wrap;gap:var(--s2);">
+                                @foreach (var tool in view.DeclaredTools)
+                                {
+                                    <span class="tag">@tool</span>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    @if (view.RequiredSecrets.Any())
+                    {
+                        <div class="mt-4">
+                            <label class="form-label text-xs text-muted">Required Secrets</label>
+                            <div style="display:flex;flex-wrap:wrap;gap:var(--s2);">
+                                @foreach (var secret in view.RequiredSecrets)
+                                {
+                                    <span class="tag">@secret</span>
+                                }
+                            </div>
+                        </div>
+                    }
+
+                    @if (view.PermissionHints.Any())
+                    {
+                        <div class="mt-4">
+                            <label class="form-label text-xs text-muted">Permission Hints</label>
+                            <div class="output-box text-xs">@string.Join(Environment.NewLine, view.PermissionHints)</div>
+                        </div>
+                    }
+
+                    <div class="token-stats mt-4">
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Linked Skills</span>
+                            <span>@view.LinkedSkillCount</span>
+                        </div>
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Managed MCP</span>
+                            <span>@(package.Kind == ExternalSkillPackageKind.ManagedMcp ? (view.ManagedServerName ?? "Not provisioned") : "Not required")</span>
+                        </div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(package.ImportError))
+                {
+                    <div class="alert alert-error mt-4">@package.ImportError</div>
+                }
+
+                @if (statusMessages.TryGetValue(package.Id, out var status))
+                {
+                    <div class="alert @(status.IsError ? "alert-error" : "alert-success") mt-4">@status.Message</div>
+                }
+
+                <div class="form-actions mt-4" style="display:flex;flex-wrap:wrap;gap:var(--s2);">
+                    <button class="btn btn-ghost btn-sm" @onclick="() => ToggleManifest(package.Id)">
+                        <i class="bi bi-file-earmark-text"></i> @(expandedManifestId == package.Id ? "Hide Source" : "Review Source")
+                    </button>
+                    <button class="btn btn-ghost btn-sm" @onclick="() => ApprovePackage(package.Id)" disabled="@(package.ApprovalStatus == ExternalSkillPackageApprovalStatus.Approved || busyPackageId == package.Id)">
+                        <i class="bi bi-check2-circle"></i> Approve
+                    </button>
+                    <button class="btn btn-ghost btn-sm" @onclick="() => ProvisionPackage(package.Id)" disabled="@(package.Kind != ExternalSkillPackageKind.ManagedMcp || package.ApprovalStatus != ExternalSkillPackageApprovalStatus.Approved || busyPackageId == package.Id)">
+                        <i class="bi bi-plug"></i> Provision MCP
+                    </button>
+                    <button class="btn btn-ghost btn-sm" @onclick="() => CheckHealth(package.Id)" disabled="@(package.Kind != ExternalSkillPackageKind.ManagedMcp || busyPackageId == package.Id)">
+                        <i class="bi bi-heart-pulse"></i> Health Check
+                    </button>
+                    <button class="btn btn-ghost btn-sm" @onclick="() => RefreshPackage(package.Id)" disabled="@(busyPackageId == package.Id)">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                    </button>
+                    <button class="btn btn-danger btn-sm" @onclick="() => UninstallPackage(package.Id)" disabled="@(busyPackageId == package.Id)">
+                        <i class="bi bi-trash3"></i> Uninstall
+                    </button>
+                </div>
+
+                @if (expandedManifestId == package.Id)
+                {
+                    <div class="mt-4">
+                        <label class="form-label text-xs text-muted">Source Review</label>
+                        <div class="output-box font-mono text-xs">@PrettyManifest(package.ManifestJson)</div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@if (showImportModal)
+{
+    <div class="modal-backdrop" @onclick="CloseImportModal">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2 class="modal-title">Import External Package</h2>
+                <button class="modal-close" @onclick="CloseImportModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+
+            <div class="modal-body">
+                <div class="form-group external-import-form">
+                    <label class="form-label">GitHub Source <span class="text-error">*</span></label>
+                    <input class="form-input font-mono" @bind="importSource" placeholder="Paste a GitHub blob URL, raw URL, or owner/repo/path@ref" />
+                    <div class="form-hint external-import-hint">
+                        <span>Supports GitHub blob URLs, raw URLs, and shorthand repo paths.</span>
+                        <div class="external-import-examples">
+                            <span class="external-import-example-label">Examples</span>
+                            <code>owner/repo/path/xpedeon-skill.json@main</code>
+                            <code>owner/repo/SKILL.md@main</code>
+                        </div>
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(importError))
+                {
+                    <div class="alert alert-error">@importError</div>
+                }
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-ghost" @onclick="CloseImportModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="ImportPackage" disabled="@isImporting">
+                    @(isImporting ? "Importing..." : "Import Package")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .external-import-form {
+        gap: 10px;
+    }
+
+    .external-import-hint {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        min-height: 0;
+        line-height: 1.45;
+    }
+
+    .external-import-examples {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+    }
+
+    .external-import-example-label {
+        font-size: 0.74rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--txt-muted);
+    }
+
+    .external-import-examples code {
+        display: inline-flex;
+        align-items: center;
+        min-height: 30px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.72);
+        border: 1px solid rgba(143,88,216,0.14);
+        color: var(--txt-secondary);
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.76rem;
+        line-height: 1.2;
+        white-space: normal;
+        word-break: break-word;
+    }
+
+    .modal-footer {
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    @@media (max-width: 640px) {
+        .external-import-examples {
+            align-items: stretch;
+        }
+
+        .external-import-examples code {
+            width: 100%;
+            border-radius: 14px;
+        }
+    }
+</style>
+
+@code {
+    private List<ExternalSkillPackage> packages = new();
+    private readonly Dictionary<string, PackageViewModel> packageViews = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, StatusMessage> statusMessages = new(StringComparer.OrdinalIgnoreCase);
+    private bool showImportModal;
+    private bool isImporting;
+    private string importSource = "";
+    private string importError = "";
+    private string? busyPackageId;
+    private string? expandedManifestId;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        packages = await PackageService.GetAllAsync();
+        packageViews.Clear();
+
+        await using var db = DbFactory.CreateDbContext();
+        foreach (var package in packages)
+        {
+            var linkedSkills = await db.SkillDefinitions
+                .Where(s => s.ExternalSkillPackageId == package.Id)
+                .OrderBy(s => s.Name)
+                .ToListAsync();
+            var managedServer = await db.MCPServers
+                .FirstOrDefaultAsync(s => s.ExternalSkillPackageId == package.Id);
+
+            packageViews[package.Id] = new PackageViewModel
+            {
+                DeclaredTools = ParseJsonArray(package.DeclaredToolNamesJson),
+                RequiredSecrets = ParseJsonArray(package.RequiredSecretNamesJson),
+                PermissionHints = ParseJsonArray(package.PermissionHintsJson),
+                LinkedSkillCount = linkedSkills.Count,
+                ManagedServerName = managedServer?.Name
+            };
+        }
+    }
+
+    private void OpenImportModal()
+    {
+        importSource = "";
+        importError = "";
+        showImportModal = true;
+    }
+
+    private void CloseImportModal()
+    {
+        showImportModal = false;
+        importError = "";
+    }
+
+    private async Task ImportPackage()
+    {
+        importError = "";
+        isImporting = true;
+
+        try
+        {
+            await PackageService.ImportFromGitHubAsync(importSource);
+            CloseImportModal();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            importError = ex.Message;
+        }
+        finally
+        {
+            isImporting = false;
+        }
+    }
+
+    private async Task ApprovePackage(string packageId)
+        => await RunPackageAction(packageId, async () =>
+        {
+            var package = await PackageService.ApprovePackageAsync(packageId);
+            statusMessages[packageId] = new StatusMessage(
+                false,
+                package.Kind == ExternalSkillPackageKind.AgentSkill
+                    ? $"Approved {package.Name}. The imported skill is now enabled for agent assignment."
+                    : $"Approved {package.Name}. Linked skills are ready for package provisioning.");
+        });
+
+    private async Task ProvisionPackage(string packageId)
+        => await RunPackageAction(packageId, async () =>
+        {
+            var result = await PackageService.ProvisionManagedMcpServerAsync(packageId);
+            statusMessages[packageId] = new StatusMessage(false, $"Provisioned managed MCP server {result.McpServerId}.");
+        });
+
+    private async Task CheckHealth(string packageId)
+        => await RunPackageAction(packageId, async () =>
+        {
+            var result = await PackageService.CheckHealthAsync(packageId);
+            statusMessages[packageId] = new StatusMessage(!result.Success, result.Message);
+        });
+
+    private async Task RefreshPackage(string packageId)
+        => await RunPackageAction(packageId, async () =>
+        {
+            var package = await PackageService.RefreshPackageAsync(packageId);
+            statusMessages[packageId] = new StatusMessage(false, $"Refreshed {package.Name}. Review is required again before enabling.");
+        });
+
+    private async Task UninstallPackage(string packageId)
+        => await RunPackageAction(packageId, async () =>
+        {
+            var package = await PackageService.UninstallPackageAsync(packageId);
+            statusMessages[packageId] = new StatusMessage(false, $"Uninstalled {package.Name}. Managed artifacts remain recorded but disabled.");
+        });
+
+    private async Task RunPackageAction(string packageId, Func<Task> action)
+    {
+        busyPackageId = packageId;
+
+        try
+        {
+            await action();
+        }
+        catch (Exception ex)
+        {
+            statusMessages[packageId] = new StatusMessage(true, ex.Message);
+        }
+        finally
+        {
+            busyPackageId = null;
+            await LoadAsync();
+        }
+    }
+
+    private void ToggleManifest(string packageId)
+        => expandedManifestId = expandedManifestId == packageId ? null : packageId;
+
+    private static List<string> ParseJsonArray(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return new List<string>();
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
+        }
+        catch
+        {
+            return new List<string>();
+        }
+    }
+
+    private static string PrettyManifest(string manifestJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(manifestJson);
+            return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch
+        {
+            return manifestJson;
+        }
+    }
+
+    private static string BadgeClass(ExternalSkillPackageApprovalStatus status)
+        => status switch
+        {
+            ExternalSkillPackageApprovalStatus.Approved => "badge badge-accent",
+            ExternalSkillPackageApprovalStatus.Rejected => "badge badge-error",
+            _ => "badge badge-warning"
+        };
+
+    private static string BadgeClass(ExternalSkillPackageInstallStatus status)
+        => status switch
+        {
+            ExternalSkillPackageInstallStatus.Healthy => "badge badge-accent",
+            ExternalSkillPackageInstallStatus.HealthCheckFailed => "badge badge-error",
+            ExternalSkillPackageInstallStatus.Uninstalled => "badge badge-warning",
+            _ => "badge badge-info"
+        };
+
+    private sealed record StatusMessage(bool IsError, string Message);
+
+    private sealed class PackageViewModel
+    {
+        public List<string> DeclaredTools { get; set; } = new();
+        public List<string> RequiredSecrets { get; set; } = new();
+        public List<string> PermissionHints { get; set; } = new();
+        public int LinkedSkillCount { get; set; }
+        public string? ManagedServerName { get; set; }
+    }
+}

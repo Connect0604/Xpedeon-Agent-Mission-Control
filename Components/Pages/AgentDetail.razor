@@ -8,6 +8,7 @@
 @inject LogService LogService
 @inject RealtimeService RealtimeService
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 
 <PageTitle>@(agent?.Name ?? "Agent") — Xpedeon AMC</PageTitle>
 
@@ -104,6 +105,9 @@ else
         <button class="tab @(activeTab == "overview" ? "on" : "")" @onclick='() => activeTab = "overview"'>Overview</button>
         <button class="tab @(activeTab == "tasks" ? "on" : "")" @onclick='() => activeTab = "tasks"'>
             Tasks <span class="tab-count">@agentTasks.Count</span>
+        </button>
+        <button class="tab @(activeTab == "chat" ? "on" : "")" @onclick="SetChatTab">
+            <i class="bi bi-chat-dots"></i> Chat
         </button>
         <button class="tab @(activeTab == "prompt" ? "on" : "")" @onclick='() => activeTab = "prompt"'>System Prompt</button>
         <button class="tab @(activeTab == "memory" ? "on" : "")" @onclick='() => activeTab = "memory"'>Memory</button>
@@ -553,6 +557,109 @@ else
         </div>
     }
 
+    <!-- Chat Tab -->
+    @if (activeTab == "chat")
+    {
+        <div class="chat-shell">
+            <div class="chat-thread" id="chat-thread">
+                @if (!agentTasks.Any())
+                {
+                    <div class="chat-empty">
+                        <i class="bi bi-chat-dots" style="font-size:2rem;color:var(--txt-muted);"></i>
+                        <div style="margin-top:var(--s3);color:var(--txt-muted);font-size:.875rem;">
+                            Send a message to run <strong style="color:var(--txt-secondary);">@agent.Name</strong>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var task in agentTasks.OrderBy(t => t.CreatedAt))
+                    {
+                        @if (!string.IsNullOrWhiteSpace(task.Input))
+                        {
+                            <div class="chat-row chat-row--user">
+                                <div class="chat-bubble chat-bubble--user">
+                                    <div class="chat-bubble__text">@task.Input</div>
+                                    <div class="chat-bubble__time">@task.CreatedAt.ToLocalTime().ToString("HH:mm")</div>
+                                </div>
+                            </div>
+                        }
+                        <div class="chat-row chat-row--agent">
+                            <div class="chat-avatar"><i class="bi bi-robot"></i></div>
+                            <div class="chat-bubble chat-bubble--agent @(task.Status == AgentTaskStatus.Failed ? "chat-bubble--failed" : "")">
+                                @if (task.Status == AgentTaskStatus.Running)
+                                {
+                                    <div class="chat-thinking">
+                                        <div class="chat-thinking__dot"></div>
+                                        <div class="chat-thinking__dot"></div>
+                                        <div class="chat-thinking__dot"></div>
+                                    </div>
+                                }
+                                else if (task.Status == AgentTaskStatus.PendingApproval)
+                                {
+                                    <div class="chat-thinking">
+                                        <div class="chat-thinking__dot"></div>
+                                        <div class="chat-thinking__dot"></div>
+                                        <div class="chat-thinking__dot"></div>
+                                        <span style="font-size:.75rem;color:var(--c-warning);margin-left:6px;">
+                                            <i class="bi bi-hourglass"></i> Awaiting approval
+                                        </span>
+                                    </div>
+                                }
+                                else if (task.Status == AgentTaskStatus.Cancelled)
+                                {
+                                    <div class="chat-bubble__text" style="color:var(--txt-muted);font-style:italic;">Cancelled.</div>
+                                }
+                                else if (task.Status == AgentTaskStatus.Failed)
+                                {
+                                    <div class="chat-bubble__text">@(task.ErrorMessage ?? "Task failed.")</div>
+                                }
+                                else if (!string.IsNullOrWhiteSpace(task.Output))
+                                {
+                                    <div class="chat-bubble__text">@task.Output</div>
+                                }
+                                @if (task.Status == AgentTaskStatus.Completed && (task.TotalTokens > 0 || !string.IsNullOrWhiteSpace(task.ModelUsed)))
+                                {
+                                    <div class="chat-meta">
+                                        @if (!string.IsNullOrWhiteSpace(task.ModelUsed)) { <span>@task.ModelUsed</span> }
+                                        @if (task.TotalTokens > 0) { <span>@task.TotalTokens.ToString("N0") tok</span> }
+                                        @if (task.DurationMs > 0) { <span>@(task.DurationMs < 1000 ? $"{task.DurationMs}ms" : $"{task.DurationMs/1000.0:F1}s")</span> }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+            <div class="chat-input-area">
+                @if (!string.IsNullOrWhiteSpace(runError))
+                {
+                    <div class="alert alert-error" style="margin-bottom:var(--s2);">@runError</div>
+                }
+                @if (agent.RequiresApproval)
+                {
+                    <div style="font-size:.75rem;color:var(--c-warning);margin-bottom:var(--s2);">
+                        <i class="bi bi-shield-exclamation"></i> This agent requires approval before running
+                    </div>
+                }
+                <div class="chat-input-row">
+                    <textarea class="form-input chat-textarea" rows="1"
+                              placeholder="Message @agent.Name…"
+                              @bind="runTaskInput" @bind:event="oninput"
+                              @onkeydown="HandleChatKeyDown"
+                              disabled="@isRunning"></textarea>
+                    <button class="chat-send-btn" @onclick="RunChatMessage"
+                            disabled="@(isRunning || string.IsNullOrWhiteSpace(runTaskInput))"
+                            title="Send (Ctrl+Enter)">
+                        @if (isRunning) { <span class="spinner" style="width:16px;height:16px;"></span> }
+                        else { <i class="bi bi-send-fill"></i> }
+                    </button>
+                </div>
+                <div style="font-size:.7rem;color:var(--txt-muted);text-align:right;">Ctrl+Enter to send</div>
+            </div>
+        </div>
+    }
+
     <!-- System Prompt Tab -->
     @if (activeTab == "prompt")
     {
@@ -770,6 +877,7 @@ else
     private string runError = "";
 
     private Timer? _refreshTimer;
+    private bool _shouldScrollChat;
 
     protected override async Task OnInitializedAsync()
     {
@@ -783,6 +891,15 @@ else
     }
 
     protected override async Task OnParametersSetAsync() => await RefreshAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_shouldScrollChat)
+        {
+            _shouldScrollChat = false;
+            await JS.InvokeVoidAsync("AMC.scrollToBottom", "chat-thread");
+        }
+    }
 
     private async Task RefreshAsync()
     {
@@ -809,6 +926,40 @@ else
     }
 
     private void CloseRunModal() { showRunModal = false; runError = ""; }
+
+    // ── Chat tab ─────────────────────────────────────────────────────────────
+
+    private void SetChatTab()
+    {
+        activeTab = "chat";
+        _shouldScrollChat = true;
+    }
+
+    private string NextChatTaskName() => $"Message {agentTasks.Count + 1}";
+
+    private async Task RunChatMessage()
+    {
+        if (string.IsNullOrWhiteSpace(runTaskInput)) return;
+        isRunning = true;
+        runError = "";
+        try
+        {
+            var name = NextChatTaskName();
+            var input = runTaskInput.Trim();
+            runTaskInput = "";
+            await TaskService.CreateAndRunAsync(AgentId, name, input, runPriority);
+            _shouldScrollChat = true;
+            await RefreshAsync();
+        }
+        catch (Exception ex) { runError = ex.Message; }
+        finally { isRunning = false; }
+    }
+
+    private async Task HandleChatKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && e.CtrlKey && !isRunning)
+            await RunChatMessage();
+    }
 
     private async Task RunTask()
     {
@@ -954,6 +1105,7 @@ else
         _ = InvokeAsync(async () =>
         {
             await RefreshAsync();
+            if (activeTab == "chat") _shouldScrollChat = true;
             StateHasChanged();
         });
     }

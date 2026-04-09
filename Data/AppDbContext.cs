@@ -24,6 +24,8 @@ public class AppDbContext : DbContext
     public DbSet<AgentTool> AgentTools => Set<AgentTool>();
     public DbSet<SkillDefinition> SkillDefinitions => Set<SkillDefinition>();
     public DbSet<AgentSkillAssignment> AgentSkillAssignments => Set<AgentSkillAssignment>();
+    public DbSet<ExternalSkillPackage> ExternalSkillPackages => Set<ExternalSkillPackage>();
+    public DbSet<ExternalSkillPackageInstall> ExternalSkillPackageInstalls => Set<ExternalSkillPackageInstall>();
     public DbSet<MCPServer> MCPServers => Set<MCPServer>();
     public DbSet<AgentMCPServer> AgentMCPServers => Set<AgentMCPServer>();
     public DbSet<AgentMemory> AgentMemories => Set<AgentMemory>();
@@ -125,6 +127,29 @@ public class AppDbContext : DbContext
              .WithMany()
              .HasForeignKey(s => s.PreferredProviderId)
              .OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(s => s.ExternalSkillPackage)
+             .WithMany()
+             .HasForeignKey(s => s.ExternalSkillPackageId)
+             .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ExternalSkillPackage>(e =>
+        {
+            e.HasKey(p => p.Id);
+            e.HasIndex(p => p.PackageKey);
+        });
+
+        modelBuilder.Entity<ExternalSkillPackageInstall>(e =>
+        {
+            e.HasKey(i => i.Id);
+            e.HasOne(i => i.ExternalSkillPackage)
+             .WithMany(p => p.Installs)
+             .HasForeignKey(i => i.ExternalSkillPackageId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(i => i.ProvisionedMcpServer)
+             .WithMany()
+             .HasForeignKey(i => i.ProvisionedMcpServerId)
+             .OnDelete(DeleteBehavior.SetNull);
         });
 
         // AgentSkillAssignment
@@ -141,6 +166,10 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<MCPServer>(e =>
         {
             e.HasKey(s => s.Id);
+            e.HasOne(s => s.ExternalSkillPackage)
+             .WithMany()
+             .HasForeignKey(s => s.ExternalSkillPackageId)
+             .OnDelete(DeleteBehavior.SetNull);
         });
 
         // AgentMCPServer (composite key join table)
@@ -428,6 +457,8 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<AgentTool>().ToTable("AGENT_TOOLS");
         modelBuilder.Entity<SkillDefinition>().ToTable("SKILL_DEFINITIONS");
         modelBuilder.Entity<AgentSkillAssignment>().ToTable("AGENT_SKILL_ASSIGNMENTS");
+        modelBuilder.Entity<ExternalSkillPackage>().ToTable("EXTERNAL_SKILL_PACKAGES");
+        modelBuilder.Entity<ExternalSkillPackageInstall>().ToTable("EXTERNAL_SKILL_PACKAGE_INSTALLS");
         modelBuilder.Entity<MCPServer>().ToTable("MCP_SERVERS");
         modelBuilder.Entity<AgentMCPServer>().ToTable("AGENT_MCP_SERVERS");
         modelBuilder.Entity<AgentMemory>().ToTable("AGENT_MEMORIES");

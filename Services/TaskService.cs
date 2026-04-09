@@ -333,6 +333,8 @@ public class TaskService
             }
         }
 
+        _realtime.NotifyTaskCompleted(new TaskCompletedNotification(
+            task.Id, task.AgentId, task.AgentName, task.Name, task.Status));
         await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
         if (agent != null)
             await _realtime.AgentUpdatedAsync(agent.Id);
@@ -610,6 +612,8 @@ public class TaskService
         }
 
         await db.SaveChangesAsync();
+        _realtime.NotifyTaskCompleted(new TaskCompletedNotification(
+            task.Id, task.AgentId, task.AgentName, task.Name, task.Status));
         await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
         await _realtime.AgentUpdatedAsync(agent.Id);
         await _realtime.DashboardRefreshAsync();
@@ -693,6 +697,9 @@ public class TaskService
             await db.SaveChangesAsync(cancellationToken);
         }
 
+        if (task.Status is AgentTaskStatus.Failed or AgentTaskStatus.Cancelled)
+            _realtime.NotifyTaskCompleted(new TaskCompletedNotification(
+                task.Id, task.AgentId, task.AgentName, task.Name, task.Status));
         await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
         await _realtime.AgentUpdatedAsync(agent.Id);
         await _realtime.DashboardRefreshAsync();

@@ -13,6 +13,7 @@ public enum SkillCategory
 public class SkillDefinition
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string? ExternalSkillPackageId { get; set; }
     public string Name { get; set; } = string.Empty;
     public SkillCategory Category { get; set; } = SkillCategory.General;
     public string Description { get; set; } = string.Empty;
@@ -27,6 +28,7 @@ public class SkillDefinition
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public List<AgentSkillAssignment> AgentAssignments { get; set; } = new();
+    public ExternalSkillPackage? ExternalSkillPackage { get; set; }
 }
 
 public class AgentSkillAssignment
