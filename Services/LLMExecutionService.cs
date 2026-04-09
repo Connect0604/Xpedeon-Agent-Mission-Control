@@ -28,20 +28,23 @@ public class LLMExecutionService
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly MCPService _mcpService;
     private readonly ILogger<LLMExecutionService> _logger;
+    private readonly TaskExecutionEventService _events;
 
     public LLMExecutionService(
         IHttpClientFactory httpFactory,
         IDbContextFactory<AppDbContext> dbFactory,
         MCPService mcpService,
-        ILogger<LLMExecutionService> logger)
+        ILogger<LLMExecutionService> logger,
+        TaskExecutionEventService events)
     {
         _httpFactory = httpFactory;
         _dbFactory = dbFactory;
         _mcpService = mcpService;
         _logger = logger;
+        _events = events;
     }
 
-    public async Task<LLMResult> ExecuteAsync(Agent agent, string userInput, string systemPrompt, CancellationToken cancellationToken = default)
+    public async Task<LLMResult> ExecuteAsync(Agent agent, string userInput, string systemPrompt, CancellationToken cancellationToken = default, string? taskId = null)
     {
         var provider = agent.LLMProvider;
         if (provider == null)
@@ -93,6 +96,46 @@ public class LLMExecutionService
         if (activeSkills.Any())
         {
             traceParts.Add($"Active skills: {string.Join(", ", activeSkills.Select(s => s.SkillDefinition?.Name).Where(n => !string.IsNullOrWhiteSpace(n)))}");
+            await LogEventAsync(
+                taskId,
+                agent.Id,
+                TaskExecutionEventType.SkillsApplied,
+                $"Applied {activeSkills.Count} skill(s).",
+                new
+                {
+                    Skills = activeSkills.Select(s => new
+                    {
+                        s.SkillDefinitionId,
+                        Name = s.SkillDefinition?.Name,
+                        Category = s.SkillDefinition?.Category.ToString()
+                    }).ToList()
+                });
+        }
+
+        if (allMcp.Any())
+        {
+            await LogEventAsync(
+                taskId,
+                agent.Id,
+                TaskExecutionEventType.MCPServersAttached,
+                $"Attached {allMcp.Count} MCP server(s).",
+                new
+                {
+                    Servers = allMcp.Select(s => new { s.Id, s.Name, Transport = s.TransportType.ToString() }).ToList()
+                });
+        }
+
+        if (discoveredTools.Any())
+        {
+            await LogEventAsync(
+                taskId,
+                agent.Id,
+                TaskExecutionEventType.MCPToolsDiscovered,
+                $"Discovered {discoveredTools.Count} MCP tool(s).",
+                new
+                {
+                    Tools = discoveredTools.Select(t => new { t.Name, t.ServerId, t.ServerName }).ToList()
+                });
         }
 
         for (var iteration = 1; iteration <= maxToolCalls; iteration++)
@@ -115,9 +158,37 @@ public class LLMExecutionService
             var iterationResults = new List<MCPToolCallResult>();
             foreach (var call in requestedCalls)
             {
+                var correlatedSkills = activeSkills
+                    .Where(s =>
+                    {
+                        var allowed = s.SkillDefinition == null ? new List<string>() : SkillService.ParseAllowedToolNames(s.SkillDefinition);
+                        return !allowed.Any() || allowed.Contains(call.ToolName, StringComparer.OrdinalIgnoreCase);
+                    })
+                    .Select(s => new { s.SkillDefinitionId, Name = s.SkillDefinition?.Name })
+                    .ToList();
+
+                await LogEventAsync(
+                    taskId,
+                    agent.Id,
+                    TaskExecutionEventType.MCPToolRequested,
+                    $"Requested MCP tool '{call.ToolName}'.",
+                    new { call.Arguments, CorrelatedSkills = correlatedSkills },
+                    skillDefinitionId: correlatedSkills.FirstOrDefault()?.SkillDefinitionId,
+                    skillName: correlatedSkills.FirstOrDefault()?.Name,
+                    toolName: call.ToolName);
+
                 var tool = discoveredTools.FirstOrDefault(t => t.Name.Equals(call.ToolName, StringComparison.OrdinalIgnoreCase));
                 if (tool == null)
                 {
+                    await LogEventAsync(
+                        taskId,
+                        agent.Id,
+                        TaskExecutionEventType.MCPToolBlocked,
+                        $"Blocked MCP tool '{call.ToolName}' because it was not discovered.",
+                        new { call.Arguments },
+                        skillDefinitionId: correlatedSkills.FirstOrDefault()?.SkillDefinitionId,
+                        skillName: correlatedSkills.FirstOrDefault()?.Name,
+                        toolName: call.ToolName);
                     iterationResults.Add(new MCPToolCallResult
                     {
                         Success = false,
@@ -131,6 +202,17 @@ public class LLMExecutionService
                 var server = allMcp.FirstOrDefault(s => s.Id == tool.ServerId);
                 if (server == null)
                 {
+                    await LogEventAsync(
+                        taskId,
+                        agent.Id,
+                        TaskExecutionEventType.MCPToolBlocked,
+                        $"Blocked MCP tool '{call.ToolName}' because its server mapping was missing.",
+                        new { call.Arguments, tool.ServerId, tool.ServerName },
+                        skillDefinitionId: correlatedSkills.FirstOrDefault()?.SkillDefinitionId,
+                        skillName: correlatedSkills.FirstOrDefault()?.Name,
+                        mcpServerId: tool.ServerId,
+                        mcpServerName: tool.ServerName,
+                        toolName: call.ToolName);
                     iterationResults.Add(new MCPToolCallResult
                     {
                         Success = false,
@@ -142,7 +224,35 @@ public class LLMExecutionService
                     continue;
                 }
 
+                await LogEventAsync(
+                    taskId,
+                    agent.Id,
+                    TaskExecutionEventType.MCPToolInvoked,
+                    $"Invoked MCP tool '{tool.Name}' on '{server.Name}'.",
+                    new { call.Arguments },
+                    skillDefinitionId: correlatedSkills.FirstOrDefault()?.SkillDefinitionId,
+                    skillName: correlatedSkills.FirstOrDefault()?.Name,
+                    mcpServerId: server.Id,
+                    mcpServerName: server.Name,
+                    toolName: tool.Name);
                 var result = await _mcpService.InvokeToolAsync(server, tool.Name, call.Arguments, cancellationToken);
+                await LogEventAsync(
+                    taskId,
+                    agent.Id,
+                    TaskExecutionEventType.MCPToolResult,
+                    result.Success
+                        ? $"MCP tool '{tool.Name}' returned successfully."
+                        : $"MCP tool '{tool.Name}' failed.",
+                    new
+                    {
+                        result.Success,
+                        ResultPreview = result.ResultText.Length > 500 ? result.ResultText[..500] : result.ResultText
+                    },
+                    skillDefinitionId: correlatedSkills.FirstOrDefault()?.SkillDefinitionId,
+                    skillName: correlatedSkills.FirstOrDefault()?.Name,
+                    mcpServerId: server.Id,
+                    mcpServerName: server.Name,
+                    toolName: tool.Name);
                 iterationResults.Add(result);
             }
 
@@ -592,6 +702,34 @@ public class LLMExecutionService
         }
 
         return builder.ToString();
+    }
+
+    private Task LogEventAsync(
+        string? taskId,
+        string agentId,
+        TaskExecutionEventType eventType,
+        string summary,
+        object? details = null,
+        string? skillDefinitionId = null,
+        string? skillName = null,
+        string? mcpServerId = null,
+        string? mcpServerName = null,
+        string? toolName = null)
+    {
+        if (string.IsNullOrWhiteSpace(taskId))
+            return Task.CompletedTask;
+
+        return _events.LogAsync(
+            taskId,
+            agentId,
+            eventType,
+            summary,
+            details,
+            skillDefinitionId,
+            skillName,
+            mcpServerId,
+            mcpServerName,
+            toolName);
     }
 
     private sealed class MCPToolCallRequest

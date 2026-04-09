@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @using System.Text.Json
 @inject TaskService TaskService
+@inject TaskExecutionEventService TaskExecutionEventService
 @inject MockDataService DataService
 @inject RealtimeService RealtimeService
 @inject NavigationManager Nav
@@ -130,6 +131,12 @@ else
                         </p>
                     </div>
                     <div style="display:flex;gap:var(--s2);align-items:center;">
+                        @if (selectedTask.Status == AgentTaskStatus.Running)
+                        {
+                            <button class="btn btn-danger btn-sm" @onclick="() => ForceStopTask(selectedTask)" disabled="@isStoppingTask">
+                                <i class="bi bi-stop-circle"></i> @(isStoppingTask ? "Stopping..." : "Force Stop")
+                            </button>
+                        }
                         @if (selectedTask.Status != AgentTaskStatus.Running && selectedTask.Status != AgentTaskStatus.PendingApproval)
                         {
                             <button class="btn btn-ghost btn-sm" @onclick="() => ReplayTask(selectedTask)" disabled="@isReplaying">
@@ -184,6 +191,47 @@ else
                     <div class="form-group">
                         <label class="form-label text-xs text-muted">Execution Trace</label>
                         <div class="output-box font-mono text-xs">@selectedTask.ExecutionTrace</div>
+                    </div>
+                }
+
+                @if (selectedEvents.Any())
+                {
+                    <div class="form-group">
+                        <label class="form-label text-xs text-muted">Execution Timeline</label>
+                        <div style="display:flex;flex-direction:column;gap:var(--s2);">
+                            @foreach (var evt in selectedEvents)
+                            {
+                                <div class="card card-pad" style="padding:var(--s3);">
+                                    <div style="display:flex;justify-content:space-between;gap:var(--s2);align-items:flex-start;">
+                                        <div style="display:flex;flex-wrap:wrap;gap:var(--s2);align-items:center;">
+                                            <span class="tag">@evt.EventType</span>
+                                            @if (!string.IsNullOrWhiteSpace(evt.SkillName))
+                                            {
+                                                <span class="tag">Skill: @evt.SkillName</span>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(evt.MCPServerName))
+                                            {
+                                                <span class="tag">MCP: @evt.MCPServerName</span>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(evt.ToolName))
+                                            {
+                                                <span class="tag">Tool: @evt.ToolName</span>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(evt.RelatedTaskId))
+                                            {
+                                                <span class="tag">Related: @evt.RelatedTaskId</span>
+                                            }
+                                        </div>
+                                        <span class="text-xs text-muted">@evt.CreatedAt.ToLocalTime().ToString("dd MMM HH:mm:ss")</span>
+                                    </div>
+                                    <div class="text-sm text-primary mt-2">@evt.Summary</div>
+                                    @if (!string.IsNullOrWhiteSpace(evt.DetailsJson))
+                                    {
+                                        <div class="output-box font-mono text-xs mt-2">@PrettyJson(evt.DetailsJson)</div>
+                                    }
+                                </div>
+                            }
+                        </div>
                     </div>
                 }
 
@@ -264,6 +312,14 @@ else
                     </div>
                 }
 
+                @if (selectedTask.Status == AgentTaskStatus.Running)
+                {
+                    <div class="card card-pad mt-4" style="border-color:var(--c-warning-border);background:var(--c-warning-bg);">
+                        <div class="text-sm font-medium text-primary">Stuck task controls</div>
+                        <div class="text-xs text-muted mt-1">Force Stop cancels the running task immediately. For Hermes/OpenClaw it also sends a remote cancel. Local runs are cooperative cancellations, not OS process kills.</div>
+                    </div>
+                }
+
                 @if (selectedTask.TotalTokens > 0)
                 {
                     <div class="token-stats">
@@ -321,6 +377,7 @@ else
     private List<AgentTask> allTasks = new();
     private List<AgentTask> filtered = new();
     private List<AgentTask> pendingApprovals = new();
+    private List<TaskExecutionEvent> selectedEvents = new();
     private AgentTask? selectedTask;
     private string activeTab = "all";
     private string searchQuery = "";
@@ -328,6 +385,7 @@ else
     private string approvalCommentDraft = "";
     private string? taskPendingDeleteId;
     private bool isReplaying;
+    private bool isStoppingTask;
     private Timer? _timer;
 
     private record TabDef(string key, string label);
@@ -362,7 +420,14 @@ else
             selectedTask = filtered.First();
 
         if (selectedTask != null)
+        {
             approvalCommentDraft = selectedTask.ApprovalComment ?? approvalCommentDraft;
+            selectedEvents = await TaskExecutionEventService.GetForTaskAsync(selectedTask.Id);
+        }
+        else
+        {
+            selectedEvents = new List<TaskExecutionEvent>();
+        }
     }
 
     private void ApplyFilter()
@@ -419,6 +484,7 @@ else
         selectedTask = selectedTask?.Id == task.Id ? null : task;
         approvalCommentDraft = selectedTask?.ApprovalComment ?? "";
         taskPendingDeleteId = null;
+        _ = LoadSelectedEventsAsync();
     }
 
     private async Task ApproveTask(string id)
@@ -445,6 +511,22 @@ else
         await TaskService.CancelTaskAsync(id, approvalComment);
         approvalCommentDraft = "";
         await LoadAsync();
+    }
+
+    private async Task ForceStopTask(AgentTask task)
+    {
+        isStoppingTask = true;
+        try
+        {
+            await TaskService.ForceStopTaskAsync(task.Id, "Force-stopped from task workspace.");
+            approvalCommentDraft = "";
+            await LoadAsync();
+            selectedTask = allTasks.FirstOrDefault(t => t.Id == task.Id) ?? selectedTask;
+        }
+        finally
+        {
+            isStoppingTask = false;
+        }
     }
 
     private async Task SubmitFeedback(AgentTask task, int rating)
@@ -548,5 +630,29 @@ else
     {
         public string? Id { get; set; }
         public string? Name { get; set; }
+    }
+
+    private async Task LoadSelectedEventsAsync()
+    {
+        selectedEvents = selectedTask == null
+            ? new List<TaskExecutionEvent>()
+            : await TaskExecutionEventService.GetForTaskAsync(selectedTask.Id);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static string PrettyJson(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return string.Empty;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch
+        {
+            return json;
+        }
     }
 }

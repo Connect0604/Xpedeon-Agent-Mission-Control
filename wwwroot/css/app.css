@@ -3845,6 +3845,75 @@ textarea.form-input {
     color: var(--txt-secondary);
 }
 
+.running-focus-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.running-focus-chip {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.46);
+    border: 1px solid var(--border-faint);
+}
+
+.running-focus-chip__label {
+    font-size: 0.72rem;
+    color: var(--txt-muted);
+}
+
+.running-focus-chip strong {
+    font-size: 1rem;
+    color: var(--txt-primary);
+}
+
+.running-task-table-wrap {
+    margin: 0 -20px -22px;
+}
+
+.running-task-name {
+    font-weight: 600;
+    color: var(--txt-primary);
+}
+
+.runtime-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.runtime-cell__value {
+    font-weight: 700;
+    color: var(--txt-primary);
+}
+
+.runtime-flag {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.runtime-flag--warning {
+    color: var(--c-warning);
+    background: var(--c-warning-bg);
+    border: 1px solid var(--c-warning-border);
+}
+
+.running-tasks-empty {
+    padding: var(--s4);
+}
+
 .provider-state {
     padding: 4px 10px;
     border-radius: 999px;
@@ -4026,6 +4095,10 @@ textarea.form-input {
     .swarm-activity-card__stats {
         grid-template-columns: 1fr;
     }
+
+    .running-focus-row {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* ── Prefers Reduced Motion ─────────────────────────────────────── */
@@ -4125,6 +4198,13 @@ textarea.form-input {
         grid-template-columns: 1fr;
     }
 
+    .running-task-table-wrap {
+        margin-left: -16px;
+        margin-right: -16px;
+        margin-bottom: -18px;
+        overflow-x: auto;
+    }
+
     .scoreboard-row {
         flex-wrap: wrap;
     }
@@ -4167,4 +4247,5 @@ textarea.form-input {
     .app-shell.sidebar-collapsed .nav-badge {
         position: static;
     }
+
 }

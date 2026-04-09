@@ -14,6 +14,7 @@ public class TaskService
     private readonly HermesOpenClawExecutionService _hermes;
     private readonly DynamicSpawnService _spawn;
     private readonly RealtimeService _realtime;
+    private readonly TaskExecutionEventService _events;
     private static readonly ConcurrentDictionary<string, CancellationTokenSource> TaskCancellation = new();
 
     public TaskService(
@@ -21,13 +22,15 @@ public class TaskService
         LLMExecutionService llm,
         HermesOpenClawExecutionService hermes,
         DynamicSpawnService spawn,
-        RealtimeService realtime)
+        RealtimeService realtime,
+        TaskExecutionEventService events)
     {
         _factory = factory;
         _llm = llm;
         _hermes = hermes;
         _spawn = spawn;
         _realtime = realtime;
+        _events = events;
     }
 
     public async Task<List<AgentTask>> GetAllAsync(int count = 100)
@@ -152,6 +155,19 @@ public class TaskService
             task.Status = AgentTaskStatus.PendingApproval;
             db.Tasks.Add(task);
             await db.SaveChangesAsync();
+            await _events.LogAsync(
+                task.Id,
+                task.AgentId,
+                TaskExecutionEventType.TaskPendingApproval,
+                "Task created and is waiting for approval.",
+                new
+                {
+                    task.Name,
+                    Provider = task.ProviderSnapshotName,
+                    Model = task.ProviderSnapshotModel,
+                    Skills = effectiveSkills.Select(s => s.SkillDefinition?.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList(),
+                    MCPServers = effectiveMcpServers.Select(m => m.MCPServer?.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList()
+                });
             await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
             return task;
         }
@@ -160,6 +176,20 @@ public class TaskService
         persistedAgent.Status = AgentStatus.Active;
         persistedAgent.CurrentTask = taskName;
         await db.SaveChangesAsync();
+        await _events.LogAsync(
+            task.Id,
+            task.AgentId,
+            TaskExecutionEventType.TaskCreated,
+            "Task created and queued for execution.",
+            new
+            {
+                task.Name,
+                Provider = task.ProviderSnapshotName,
+                Model = task.ProviderSnapshotModel,
+                Skills = effectiveSkills.Select(s => s.SkillDefinition?.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList(),
+                MCPServers = effectiveMcpServers.Select(m => m.MCPServer?.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList(),
+                task.ExecutionBackendSnapshot
+            });
         await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
         await _realtime.AgentUpdatedAsync(persistedAgent.Id);
 
@@ -207,6 +237,12 @@ public class TaskService
         agent.Status = AgentStatus.Active;
         agent.CurrentTask = task.Name;
         await db.SaveChangesAsync();
+        await _events.LogAsync(
+            task.Id,
+            task.AgentId,
+            TaskExecutionEventType.TaskApproved,
+            "Task approved and execution started.",
+            new { task.Name, approvalComment });
         await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
         await _realtime.AgentUpdatedAsync(agent.Id);
 
@@ -234,15 +270,23 @@ public class TaskService
     }
 
     public async Task CancelTaskAsync(string taskId, string? approvalComment = null)
+        => await StopTaskInternalAsync(taskId, approvalComment, "Task cancelled.", false);
+
+    public async Task ForceStopTaskAsync(string taskId, string? operatorComment = null)
+        => await StopTaskInternalAsync(taskId, operatorComment, "Task force-stopped by operator.", true);
+
+    private async Task StopTaskInternalAsync(string taskId, string? comment, string defaultErrorMessage, bool isForceStop)
     {
         await using var db = _factory.CreateDbContext();
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == taskId);
         if (task == null) return;
+        if (task.Status is AgentTaskStatus.Completed or AgentTaskStatus.Failed or AgentTaskStatus.Cancelled) return;
+
         task.Status = AgentTaskStatus.Cancelled;
         task.CompletedAt = DateTime.UtcNow;
-        task.ErrorMessage ??= "Task cancelled.";
-        if (!string.IsNullOrWhiteSpace(approvalComment))
-            task.ApprovalComment = approvalComment;
+        task.ErrorMessage ??= defaultErrorMessage;
+        if (!string.IsNullOrWhiteSpace(comment))
+            task.ApprovalComment = comment;
 
         var agent = await db.Agents.FindAsync(task.AgentId);
         if (agent != null && agent.CurrentTask == task.Name)
@@ -251,7 +295,25 @@ public class TaskService
             agent.CurrentTask = "Idle";
         }
 
+        db.Logs.Add(new LogEntry
+        {
+            AgentId = task.AgentId,
+            AgentName = task.AgentName,
+            TaskId = task.Id,
+            Message = isForceStop
+                ? $"Task '{task.Name}' was force-stopped by an operator."
+                : $"Task '{task.Name}' was cancelled.",
+            Level = isForceStop ? AgentLogLevel.Warning : AgentLogLevel.Info,
+            Timestamp = DateTime.UtcNow
+        });
+
         await db.SaveChangesAsync();
+        await _events.LogAsync(
+            task.Id,
+            task.AgentId,
+            TaskExecutionEventType.TaskCancelled,
+            isForceStop ? "Task force-stopped by operator." : "Task cancelled.",
+            new { comment, isForceStop });
         if (TaskCancellation.TryGetValue(taskId, out var cts))
             cts.Cancel();
 
@@ -441,7 +503,7 @@ public class TaskService
             await db.SaveChangesAsync();
             await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
 
-            var result = await _llm.ExecuteAsync(agent, task.Input ?? string.Empty, task.SystemPromptSnapshot ?? agent.SystemPrompt, cancellationToken);
+            var result = await _llm.ExecuteAsync(agent, task.Input ?? string.Empty, task.SystemPromptSnapshot ?? agent.SystemPrompt, cancellationToken, task.Id);
 
             await db.Entry(task).ReloadAsync(cancellationToken);
             if (task.Status == AgentTaskStatus.Cancelled || cancellationToken.IsCancellationRequested)
@@ -480,6 +542,19 @@ public class TaskService
                 Message = $"Task '{task.Name}' completed — {result.TotalTokens} tokens",
                 Level = AgentLogLevel.Success, Timestamp = DateTime.UtcNow
             });
+            await _events.LogAsync(
+                task.Id,
+                task.AgentId,
+                TaskExecutionEventType.TaskCompleted,
+                "Task completed successfully.",
+                new
+                {
+                    result.TotalTokens,
+                    result.CostUSD,
+                    result.ModelUsed,
+                    result.ToolCallsUsed,
+                    task.DurationMs
+                });
         }
         catch (OperationCanceledException)
         {
@@ -497,6 +572,11 @@ public class TaskService
                 agentRecord.Status = AgentStatus.Idle;
                 agentRecord.CurrentTask = "Idle";
             }
+            await _events.LogAsync(
+                task.Id,
+                task.AgentId,
+                TaskExecutionEventType.TaskCancelled,
+                "Task cancelled during execution.");
         }
         catch (Exception ex)
         {
@@ -521,6 +601,12 @@ public class TaskService
                 Message = $"Task '{task.Name}' failed: {ex.Message}",
                 Level = AgentLogLevel.Error, Timestamp = DateTime.UtcNow
             });
+            await _events.LogAsync(
+                task.Id,
+                task.AgentId,
+                TaskExecutionEventType.TaskFailed,
+                "Task failed during execution.",
+                new { ex.Message, task.DurationMs });
         }
 
         await db.SaveChangesAsync();

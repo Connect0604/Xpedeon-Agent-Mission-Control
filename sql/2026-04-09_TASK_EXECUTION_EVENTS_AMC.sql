@@ -1,0 +1,60 @@
+USE [BZMGTLDB];
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'amc')
+BEGIN
+    EXEC('CREATE SCHEMA [amc]');
+END
+GO
+
+IF OBJECT_ID(N'[amc].[TASK_EXECUTION_EVENTS]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [amc].[TASK_EXECUTION_EVENTS] (
+        [ID] NVARCHAR(64) NOT NULL,
+        [TASK_ID] NVARCHAR(64) NOT NULL,
+        [AGENT_ID] NVARCHAR(64) NOT NULL,
+        [EVENT_TYPE] INT NOT NULL,
+        [SUMMARY] NVARCHAR(MAX) NOT NULL,
+        [DETAILS_JSON] NVARCHAR(MAX) NULL,
+        [SKILL_DEFINITION_ID] NVARCHAR(64) NULL,
+        [SKILL_NAME] NVARCHAR(255) NULL,
+        [MCP_SERVER_ID] NVARCHAR(64) NULL,
+        [MCP_SERVER_NAME] NVARCHAR(255) NULL,
+        [TOOL_NAME] NVARCHAR(255) NULL,
+        [RELATED_TASK_ID] NVARCHAR(64) NULL,
+        [CREATED_AT] DATETIME2 NOT NULL CONSTRAINT [DF_TASK_EXECUTION_EVENTS_CREATED_AT] DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT [PK_TASK_EXECUTION_EVENTS] PRIMARY KEY ([ID]),
+        CONSTRAINT [FK_TASK_EXECUTION_EVENTS_AGENT_TASKS] FOREIGN KEY ([TASK_ID])
+            REFERENCES [amc].[AGENT_TASKS]([ID]) ON DELETE CASCADE
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_TASK_EXECUTION_EVENTS_TASK_ID_CREATED_AT' AND object_id = OBJECT_ID(N'[amc].[TASK_EXECUTION_EVENTS]'))
+BEGIN
+    CREATE INDEX [IX_TASK_EXECUTION_EVENTS_TASK_ID_CREATED_AT]
+        ON [amc].[TASK_EXECUTION_EVENTS] ([TASK_ID], [CREATED_AT]);
+END
+GO
+
+/*
+TaskExecutionEventType enum mapping:
+0  = TaskCreated
+1  = TaskPendingApproval
+2  = TaskApproved
+3  = TaskCancelled
+4  = TaskCompleted
+5  = TaskFailed
+6  = SkillsApplied
+7  = MCPServersAttached
+8  = MCPToolsDiscovered
+9  = MCPToolRequested
+10 = MCPToolBlocked
+11 = MCPToolInvoked
+12 = MCPToolResult
+13 = SpawnStarted
+14 = SpawnDecomposed
+15 = SpawnChildCreated
+16 = SpawnChildCompleted
+17 = SpawnAggregationCompleted
+*/

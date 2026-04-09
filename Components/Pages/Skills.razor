@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @inject SkillService SkillService
 @inject AgentService AgentService
+@inject LLMProviderService ProviderService
 
 <PageTitle>Skills - Xpedeon AMC</PageTitle>
 
@@ -10,6 +11,9 @@
         <h1 class="page-title">Capability Skills</h1>
         <p class="page-subtitle">Reusable skill bundles that shape prompts, guardrails, and MCP tool access.</p>
     </div>
+    <button class="btn btn-primary" @onclick="OpenCreateModal">
+        <i class="bi bi-plus-lg"></i> Add Skill
+    </button>
 </div>
 
 @if (!skills.Any())
@@ -17,14 +21,17 @@
     <div class="card card-pad empty-state">
         <div class="empty-icon"><i class="bi bi-stars"></i></div>
         <div class="empty-title">No skills configured</div>
-        <div class="empty-desc">Skills will appear here once they are seeded or created.</div>
+        <div class="empty-desc">Create a skill to start attaching reusable capabilities to agents.</div>
+        <button class="btn btn-primary mt-4" @onclick="OpenCreateModal">
+            <i class="bi bi-plus-lg"></i> Add your first skill
+        </button>
     </div>
 }
 else
 {
     <div class="learning-kpi-row">
         <div class="learning-kpi">
-            <div class="learning-kpi__val">@skills.Count</div>
+            <div class="learning-kpi__val">@skills.Count(s => s.IsEnabled)</div>
             <div class="learning-kpi__lbl">Enabled Skills</div>
         </div>
         <div class="learning-kpi">
@@ -49,8 +56,23 @@ else
         </div>
     </div>
 
+    <div class="card card-pad mt-4">
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label">Category Filter</label>
+                <select class="form-input" @bind="selectedCategoryFilter">
+                    <option value="">All categories</option>
+                    @foreach (var category in Enum.GetValues<SkillCategory>())
+                    {
+                        <option value="@category">@category</option>
+                    }
+                </select>
+            </div>
+        </div>
+    </div>
+
     <div class="eval-grid mt-4">
-        @foreach (var skill in skills)
+        @foreach (var skill in FilteredSkills)
         {
             var allowedTools = SkillService.ParseAllowedToolNames(skill);
             <div class="card card-pad eval-card">
@@ -59,7 +81,8 @@ else
                         <div class="section-head"><i class="bi bi-stars"></i> @skill.Name</div>
                         <div class="text-sm text-secondary mt-1">@skill.Description</div>
                     </div>
-                    <div style="display:flex;gap:var(--s2);flex-wrap:wrap;justify-content:flex-end;">
+                    <div style="display:flex;gap:var(--s2);flex-wrap:wrap;justify-content:flex-end;align-items:flex-start;">
+                        <span class="tag">@skill.Category</span>
                         @if (skill.IsBuiltIn)
                         {
                             <span class="badge badge-accent">Built In</span>
@@ -72,6 +95,12 @@ else
                         {
                             <span class="badge badge-error">Disabled</span>
                         }
+                        <button class="btn btn-ghost btn-sm" @onclick="() => OpenEditModal(skill)" title="Edit">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <button class="btn btn-ghost btn-sm text-error" @onclick="() => ConfirmDelete(skill)" title="Delete">
+                            <i class="bi bi-trash"></i>
+                        </button>
                     </div>
                 </div>
 
@@ -87,6 +116,10 @@ else
                     <div class="token-stat">
                         <span class="text-muted text-xs">Assigned Agents</span>
                         <span>@skill.AgentAssignments.Count(a => a.IsEnabled)</span>
+                    </div>
+                    <div class="token-stat">
+                        <span class="text-muted text-xs">Preferred Provider</span>
+                        <span>@(ProviderName(skill.PreferredProviderId) ?? "None")</span>
                     </div>
                     <div class="token-stat">
                         <span class="text-muted text-xs">Preferred Model</span>
@@ -123,14 +156,146 @@ else
     </div>
 }
 
+@if (showModal)
+{
+    <div class="modal-backdrop" @onclick="CloseModal">
+        <div class="modal" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2 class="modal-title">@(editingId == null ? "Add Skill" : "Edit Skill")</h2>
+                <button class="modal-close" @onclick="CloseModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Skill Name <span class="text-error">*</span></label>
+                    <input class="form-input" @bind="form.Name" placeholder="e.g. Vendor Master Audit" />
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Category <span class="text-error">*</span></label>
+                    <select class="form-input" @bind="form.Category">
+                        @foreach (var category in Enum.GetValues<SkillCategory>())
+                        {
+                            <option value="@category">@category</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Description <span class="text-error">*</span></label>
+                    <textarea class="form-input" rows="3" @bind="form.Description" placeholder="Describe what this skill helps the agent do."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Prompt Guidance</label>
+                    <textarea class="form-input" rows="4" @bind="form.PromptSnippet" placeholder="Instructions injected when this skill is active."></textarea>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Preferred Provider</label>
+                        <select class="form-input" @bind="form.PreferredProviderId">
+                            <option value="">None</option>
+                            @foreach (var provider in providers)
+                            {
+                                <option value="@provider.Id">@provider.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Preferred Model</label>
+                        <input class="form-input font-mono" @bind="form.PreferredModelName" placeholder="e.g. claude-sonnet-4-6" />
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Max Tool Calls</label>
+                        <input class="form-input" type="number" @bind="form.MaxToolCalls" min="0" />
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Allowed MCP Tools JSON</label>
+                        <input class="form-input font-mono" @bind="form.AllowedMcpToolNamesJson" placeholder='["xpedeon-database-tool"]' />
+                        <span class="form-hint">Leave empty or use <span class="font-mono">[]</span> to allow all assigned MCP tools.</span>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <label class="form-check">
+                        <input type="checkbox" @bind="form.RequiresApproval" />
+                        <span>Requires approval before execution</span>
+                    </label>
+                    <label class="form-check">
+                        <input type="checkbox" @bind="form.IsEnabled" />
+                        <span>Enabled</span>
+                    </label>
+                    <label class="form-check">
+                        <input type="checkbox" @bind="form.IsBuiltIn" />
+                        <span>Mark as built-in</span>
+                    </label>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(errorMsg))
+                {
+                    <div class="alert alert-error">@errorMsg</div>
+                }
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-ghost" @onclick="CloseModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="SaveSkill" disabled="@isSaving">
+                    @(isSaving ? "Saving..." : (editingId == null ? "Add Skill" : "Save Changes"))
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (deletingSkill != null)
+{
+    <div class="modal-backdrop" @onclick="CloseDeleteModal">
+        <div class="modal modal--sm" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2 class="modal-title text-error">Delete Skill</h2>
+                <button class="modal-close" @onclick="CloseDeleteModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-secondary">Are you sure you want to delete <strong class="text-primary">@deletingSkill.Name</strong>?</p>
+                <p class="text-muted text-sm mt-2">Agents currently using this skill will lose the assignment automatically.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" @onclick="CloseDeleteModal">Cancel</button>
+                <button class="btn btn-danger" @onclick="DeleteSkill">Delete</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     private List<SkillDefinition> skills = new();
+    private List<Agent> agents = new();
+    private List<LLMProvider> providers = new();
+    private bool showModal;
+    private bool isSaving;
+    private string? editingId;
+    private string errorMsg = "";
     private int agentsWithSkills;
+    private SkillDefinition? deletingSkill;
+    private string selectedCategoryFilter = "";
 
-    protected override async Task OnInitializedAsync()
+    private SkillDefinition form = NewSkillForm();
+    private IEnumerable<SkillDefinition> FilteredSkills => string.IsNullOrWhiteSpace(selectedCategoryFilter)
+        ? skills
+        : skills.Where(s => s.Category.ToString() == selectedCategoryFilter);
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
     {
-        skills = await SkillService.GetAllAsync();
-        var agents = await AgentService.GetAllAsync();
+        skills = await SkillService.GetAllAsync(includeDisabled: true);
+        agents = await AgentService.GetAllAsync();
+        providers = await ProviderService.GetAllAsync();
+
         agentsWithSkills = agents.Count(a => a.Skills.Any(s => s.IsEnabled && s.SkillDefinition is { IsEnabled: true }));
 
         foreach (var skill in skills)
@@ -141,4 +306,105 @@ else
                 .ToList();
         }
     }
+
+    private void OpenCreateModal()
+    {
+        editingId = null;
+        form = NewSkillForm();
+        errorMsg = "";
+        showModal = true;
+    }
+
+    private void OpenEditModal(SkillDefinition skill)
+    {
+        editingId = skill.Id;
+        form = new SkillDefinition
+        {
+            Id = skill.Id,
+            Name = skill.Name,
+            Category = skill.Category,
+            Description = skill.Description,
+            PromptSnippet = skill.PromptSnippet,
+            AllowedMcpToolNamesJson = skill.AllowedMcpToolNamesJson,
+            PreferredProviderId = skill.PreferredProviderId,
+            PreferredModelName = skill.PreferredModelName,
+            MaxToolCalls = skill.MaxToolCalls,
+            RequiresApproval = skill.RequiresApproval,
+            IsBuiltIn = skill.IsBuiltIn,
+            IsEnabled = skill.IsEnabled,
+            CreatedAt = skill.CreatedAt
+        };
+        errorMsg = "";
+        showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+        errorMsg = "";
+    }
+
+    private void ConfirmDelete(SkillDefinition skill)
+    {
+        deletingSkill = skill;
+    }
+
+    private void CloseDeleteModal()
+    {
+        deletingSkill = null;
+    }
+
+    private async Task SaveSkill()
+    {
+        errorMsg = "";
+        isSaving = true;
+
+        try
+        {
+            if (editingId == null)
+                await SkillService.CreateAsync(form);
+            else
+                await SkillService.UpdateAsync(form);
+
+            await LoadAsync();
+            CloseModal();
+        }
+        catch (Exception ex)
+        {
+            errorMsg = ex.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task DeleteSkill()
+    {
+        if (deletingSkill == null)
+            return;
+
+        try
+        {
+            await SkillService.DeleteAsync(deletingSkill.Id);
+            CloseDeleteModal();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMsg = ex.Message;
+            CloseDeleteModal();
+        }
+    }
+
+    private string? ProviderName(string? providerId)
+        => providers.FirstOrDefault(p => p.Id == providerId)?.Name;
+
+    private static SkillDefinition NewSkillForm() => new()
+    {
+        Category = SkillCategory.General,
+        IsEnabled = true,
+        IsBuiltIn = false,
+        AllowedMcpToolNamesJson = "[]"
+    };
 }
