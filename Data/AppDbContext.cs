@@ -33,6 +33,10 @@ public class AppDbContext : DbContext
     public DbSet<AgentSchedule> AgentSchedules => Set<AgentSchedule>();
     public DbSet<EvaluationScenario> EvaluationScenarios => Set<EvaluationScenario>();
     public DbSet<EvaluationRun> EvaluationRuns => Set<EvaluationRun>();
+    public DbSet<AgentWorkflow> Workflows => Set<AgentWorkflow>();
+    public DbSet<AgentWorkflowStep> WorkflowSteps => Set<AgentWorkflowStep>();
+    public DbSet<WorkflowRun> WorkflowRuns => Set<WorkflowRun>();
+    public DbSet<WorkflowStepRun> WorkflowStepRuns => Set<WorkflowStepRun>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -192,6 +196,41 @@ public class AppDbContext : DbContext
             e.Property(r => r.CostUSD).HasColumnType("decimal(18,6)");
             e.HasOne(r => r.Scenario).WithMany(s => s.Runs)
              .HasForeignKey(r => r.EvaluationScenarioId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AgentWorkflow>(e =>
+        {
+            e.HasKey(w => w.Id);
+            e.HasMany(w => w.Steps).WithOne(s => s.Workflow)
+                .HasForeignKey(s => s.WorkflowId).OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(w => w.Runs).WithOne(r => r.Workflow)
+                .HasForeignKey(r => r.WorkflowId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AgentWorkflowStep>(e =>
+        {
+            e.HasKey(s => s.Id);
+            e.HasIndex(s => new { s.WorkflowId, s.StepOrder }).IsUnique();
+            e.HasOne(s => s.Agent).WithMany()
+                .HasForeignKey(s => s.AgentId).OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(s => s.Swarm).WithMany()
+                .HasForeignKey(s => s.SwarmId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<WorkflowRun>(e =>
+        {
+            e.HasKey(r => r.Id);
+            e.HasIndex(r => new { r.WorkflowId, r.CreatedAt });
+            e.HasMany(r => r.StepRuns).WithOne(sr => sr.WorkflowRun)
+                .HasForeignKey(sr => sr.WorkflowRunId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<WorkflowStepRun>(e =>
+        {
+            e.HasKey(sr => sr.Id);
+            e.HasIndex(sr => new { sr.WorkflowRunId, sr.StepOrder });
+            e.HasOne(sr => sr.WorkflowStep).WithMany(s => s.StepRuns)
+                .HasForeignKey(sr => sr.WorkflowStepId).OnDelete(DeleteBehavior.Restrict);
         });
 
         if (Database.ProviderName?.Contains("SqlServer", StringComparison.OrdinalIgnoreCase) == true)
@@ -384,6 +423,10 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<AgentSchedule>().ToTable("AGENT_SCHEDULES");
         modelBuilder.Entity<EvaluationScenario>().ToTable("EVALUATION_SCENARIOS");
         modelBuilder.Entity<EvaluationRun>().ToTable("EVALUATION_RUNS");
+        modelBuilder.Entity<AgentWorkflow>().ToTable("AGENT_WORKFLOWS");
+        modelBuilder.Entity<AgentWorkflowStep>().ToTable("AGENT_WORKFLOW_STEPS");
+        modelBuilder.Entity<WorkflowRun>().ToTable("WORKFLOW_RUNS");
+        modelBuilder.Entity<WorkflowStepRun>().ToTable("WORKFLOW_STEP_RUNS");
 
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {

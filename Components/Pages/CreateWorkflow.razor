@@ -1,0 +1,408 @@
+@page "/workflows/create"
+@page "/workflows/{WorkflowId}/edit"
+@rendermode InteractiveServer
+@inject WorkflowService WorkflowService
+@inject AgentService AgentService
+@inject SwarmService SwarmService
+@inject NavigationManager Nav
+
+<PageTitle>@(isEditMode ? "Edit Workflow" : "Create Workflow") - Xpedeon AMC</PageTitle>
+
+<div class="page-header workflow-builder-header">
+    <div>
+        <h1 class="page-title">@(isEditMode ? "Edit Workflow" : "Create Workflow")</h1>
+        <p class="page-subtitle">Build a reusable sequence of agent, swarm, and approval stages.</p>
+    </div>
+    <button class="btn btn-ghost" @onclick='() => Nav.NavigateTo("/workflows")'>
+        <i class="bi bi-arrow-left"></i> Back
+    </button>
+</div>
+
+<div class="workflow-builder-shell">
+    <aside class="workflow-builder-rail">
+        <div class="card card-pad workflow-rail-card">
+            <div class="workflow-kicker">Workflow Blueprint</div>
+            <h3 class="workflow-rail-title">Design the flow before the run.</h3>
+            <p class="workflow-rail-copy">Compose reusable stages using your existing agents and swarms, then control how the workflow pauses, recovers, and hands off context.</p>
+
+            <div class="workflow-rail-metrics">
+                <div class="workflow-rail-metric">
+                    <span class="workflow-rail-metric__label">Stages</span>
+                    <span class="workflow-rail-metric__value">@workflow.Steps.Count</span>
+                </div>
+                <div class="workflow-rail-metric">
+                    <span class="workflow-rail-metric__label">Active</span>
+                    <span class="workflow-rail-metric__value">@(workflow.IsActive ? "Yes" : "No")</span>
+                </div>
+                <div class="workflow-rail-metric">
+                    <span class="workflow-rail-metric__label">Version</span>
+                    <span class="workflow-rail-metric__value">@workflow.Version</span>
+                </div>
+            </div>
+
+            <div class="workflow-outline">
+                @foreach (var outlineStep in workflow.Steps.OrderBy(s => s.StepOrder))
+                {
+                    <div class="workflow-outline__item">
+                        <div class="workflow-outline__num">@outlineStep.StepOrder</div>
+                        <div class="workflow-outline__body">
+                            <div class="workflow-outline__title">@outlineStep.Name</div>
+                            <div class="workflow-outline__meta">@outlineStep.StepType</div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </aside>
+
+    <div class="workflow-builder-main">
+        <section class="card card-pad workflow-basics-card">
+            <div class="workflow-section-head">
+                <div>
+                    <div class="workflow-kicker">Foundation</div>
+                    <h3 class="workflow-section-title">Workflow basics</h3>
+                </div>
+                <span class="provider-state @(workflow.IsActive ? "success" : "idle")">
+                    @(workflow.IsActive ? "Ready to publish" : "Draft")
+                </span>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Workflow Name <span class="text-error">*</span></label>
+                    <input class="form-input" @bind="workflow.Name" placeholder="e.g. Invoice review and approval" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Version</label>
+                    <input class="form-input font-mono" @bind="workflow.Version" />
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Description</label>
+                <textarea class="form-input" rows="4" @bind="workflow.Description" placeholder="Summarize the business process, expected output, and any operator expectations."></textarea>
+            </div>
+
+            <label class="form-check workflow-inline-check">
+                <input type="checkbox" @bind="workflow.IsActive" />
+                <span>Workflow is active and available for execution</span>
+            </label>
+        </section>
+
+        <section class="card card-pad workflow-stages-card">
+            <div class="workflow-section-head">
+                <div>
+                    <div class="workflow-kicker">Composition</div>
+                    <h3 class="workflow-section-title">Workflow stages</h3>
+                </div>
+                <button class="btn btn-primary btn-sm" @onclick="AddStep">
+                    <i class="bi bi-plus-lg"></i> Add Stage
+                </button>
+            </div>
+
+            @if (!workflow.Steps.Any())
+            {
+                <div class="workflow-empty">
+                    <div class="empty-icon"><i class="bi bi-diagram-2"></i></div>
+                    <div class="empty-title">No stages yet</div>
+                    <div class="empty-desc">Add an agent stage, a swarm stage, or an approval checkpoint to begin shaping the workflow.</div>
+                </div>
+            }
+            else
+            {
+                <div class="workflow-stage-stack">
+                    @foreach (var step in workflow.Steps.OrderBy(s => s.StepOrder).ToList())
+                    {
+                        <article class="workflow-stage-card">
+                            <div class="workflow-stage-card__top">
+                                <div class="workflow-stage-card__identity">
+                                    <div class="workflow-stage-card__index">@step.StepOrder</div>
+                                    <div>
+                                        <div class="workflow-stage-card__label">Stage @step.StepOrder</div>
+                                        <div class="workflow-stage-card__hint">Configure target, handoff, and recovery behavior.</div>
+                                    </div>
+                                </div>
+                                <div class="workflow-stage-card__actions">
+                                    <button class="btn btn-ghost btn-sm" @onclick="() => MoveStep(step.StepOrder, -1)" disabled="@(step.StepOrder == 1)">
+                                        <i class="bi bi-arrow-up"></i>
+                                    </button>
+                                    <button class="btn btn-ghost btn-sm" @onclick="() => MoveStep(step.StepOrder, 1)" disabled="@(step.StepOrder == workflow.Steps.Count)">
+                                        <i class="bi bi-arrow-down"></i>
+                                    </button>
+                                    <button class="btn btn-ghost btn-sm text-error" @onclick="() => RemoveStep(step.StepOrder)">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Stage Name</label>
+                                    <input class="form-input" @bind="step.Name" placeholder="e.g. Validate invoice packet" />
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Stage Type</label>
+                                    <select class="form-input" @bind="step.StepType">
+                                        @foreach (var type in Enum.GetValues<WorkflowStepType>())
+                                        {
+                                            <option value="@type">@type</option>
+                                        }
+                                    </select>
+                                </div>
+                            </div>
+
+                            @if (step.StepType == WorkflowStepType.AgentTask)
+                            {
+                                <div class="form-group">
+                                    <label class="form-label">Assigned Agent</label>
+                                    <select class="form-input" @bind="step.AgentId">
+                                        <option value="">— Select agent —</option>
+                                        @foreach (var agent in agents)
+                                        {
+                                            <option value="@agent.Id">@agent.Name</option>
+                                        }
+                                    </select>
+                                </div>
+                            }
+                            else if (step.StepType == WorkflowStepType.SwarmDispatch)
+                            {
+                                <div class="form-group">
+                                    <label class="form-label">Assigned Swarm</label>
+                                    <select class="form-input" @bind="step.SwarmId">
+                                        <option value="">— Select swarm —</option>
+                                        @foreach (var swarm in swarms)
+                                        {
+                                            <option value="@swarm.Id">@swarm.Name</option>
+                                        }
+                                    </select>
+                                </div>
+                            }
+
+                            <div class="form-row workflow-stage-grid">
+                                <div class="form-group">
+                                    <label class="form-label">Input Source</label>
+                                    <select class="form-input" @bind="step.InputSource">
+                                        @foreach (var inputSource in Enum.GetValues<WorkflowInputSource>())
+                                        {
+                                            <option value="@inputSource">@inputSource</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Timeout (seconds)</label>
+                                    <input class="form-input" type="number" min="30" @bind="step.TimeoutSeconds" />
+                                </div>
+                            </div>
+
+                            @if (step.InputSource == WorkflowInputSource.StaticText)
+                            {
+                                <div class="form-group">
+                                    <label class="form-label">Static Input</label>
+                                    <textarea class="form-input" rows="3" @bind="step.StaticInput" placeholder="Provide the fixed instruction payload for this stage."></textarea>
+                                </div>
+                            }
+
+                            <div class="form-group">
+                                <label class="form-label">Prompt Override <span class="text-muted text-xs">optional</span></label>
+                                <textarea class="form-input" rows="4" @bind="step.PromptOverride" placeholder="Use this when the workflow needs a tighter instruction set than the base agent prompt."></textarea>
+                            </div>
+
+                            <div class="workflow-toggle-grid">
+                                <div class="workflow-toggle-panel">
+                                    <div>
+                                        <div class="toggle-label">Require Approval</div>
+                                        <div class="toggle-desc text-muted text-sm">Pause this stage until an operator approves it.</div>
+                                    </div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" @bind="step.RequireApproval" />
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                                <div class="workflow-toggle-panel">
+                                    <div>
+                                        <div class="toggle-label">Continue on Failure</div>
+                                        <div class="toggle-desc text-muted text-sm">Allow downstream stages to continue if this one fails.</div>
+                                    </div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" @bind="step.ContinueOnFailure" />
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </article>
+                    }
+                </div>
+            }
+        </section>
+
+        @if (!string.IsNullOrWhiteSpace(errorMsg))
+        {
+            <div class="alert alert-error mt-4">@errorMsg</div>
+        }
+
+        <div class="form-actions mt-4 workflow-builder-actions">
+            <button class="btn btn-ghost" @onclick='() => Nav.NavigateTo("/workflows")'>Cancel</button>
+            <button class="btn btn-primary ml-auto" @onclick="SaveAsync" disabled="@isSaving">
+                @if (isSaving) { <span class="spinner"></span> }
+                <i class="bi bi-check-lg"></i> @(isSaving ? "Saving..." : (isEditMode ? "Save Workflow" : "Create Workflow"))
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string? WorkflowId { get; set; }
+
+    private AgentWorkflow workflow = new();
+    private List<Agent> agents = new();
+    private List<Swarm> swarms = new();
+    private bool isSaving;
+    private string errorMsg = "";
+    private bool isEditMode => !string.IsNullOrWhiteSpace(WorkflowId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        agents = await AgentService.GetAllAsync();
+        swarms = await SwarmService.GetAllAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!isEditMode)
+        {
+            if (!workflow.Steps.Any())
+                AddStep();
+            return;
+        }
+
+        var existing = await WorkflowService.GetByIdAsync(WorkflowId!);
+        if (existing != null)
+        {
+            workflow = new AgentWorkflow
+            {
+                Id = existing.Id,
+                Name = existing.Name,
+                Description = existing.Description,
+                IsActive = existing.IsActive,
+                Version = existing.Version,
+                Steps = existing.Steps.OrderBy(s => s.StepOrder).Select(s => new AgentWorkflowStep
+                {
+                    Id = s.Id,
+                    WorkflowId = s.WorkflowId,
+                    StepOrder = s.StepOrder,
+                    Name = s.Name,
+                    StepType = s.StepType,
+                    AgentId = s.AgentId,
+                    SwarmId = s.SwarmId,
+                    StaticInput = s.StaticInput,
+                    InputSource = s.InputSource,
+                    PromptOverride = s.PromptOverride,
+                    RequireApproval = s.RequireApproval,
+                    TimeoutSeconds = s.TimeoutSeconds,
+                    ContinueOnFailure = s.ContinueOnFailure
+                }).ToList()
+            };
+        }
+
+        if (!workflow.Steps.Any())
+            AddStep();
+    }
+
+    private void AddStep()
+    {
+        workflow.Steps.Add(new AgentWorkflowStep
+        {
+            StepOrder = workflow.Steps.Count + 1,
+            Name = $"Step {workflow.Steps.Count + 1}",
+            StepType = WorkflowStepType.AgentTask,
+            InputSource = WorkflowInputSource.WorkflowInput,
+            TimeoutSeconds = 120
+        });
+        NormalizeStepOrder();
+    }
+
+    private void RemoveStep(int stepOrder)
+    {
+        var step = workflow.Steps.FirstOrDefault(s => s.StepOrder == stepOrder);
+        if (step != null)
+            workflow.Steps.Remove(step);
+        NormalizeStepOrder();
+    }
+
+    private void MoveStep(int stepOrder, int delta)
+    {
+        var ordered = workflow.Steps.OrderBy(s => s.StepOrder).ToList();
+        var index = ordered.FindIndex(s => s.StepOrder == stepOrder);
+        var targetIndex = index + delta;
+        if (index < 0 || targetIndex < 0 || targetIndex >= ordered.Count)
+            return;
+
+        (ordered[index], ordered[targetIndex]) = (ordered[targetIndex], ordered[index]);
+        workflow.Steps = ordered;
+        NormalizeStepOrder();
+    }
+
+    private void NormalizeStepOrder()
+    {
+        workflow.Steps = workflow.Steps.OrderBy(s => s.StepOrder).ToList();
+        for (var i = 0; i < workflow.Steps.Count; i++)
+            workflow.Steps[i].StepOrder = i + 1;
+    }
+
+    private async Task SaveAsync()
+    {
+        errorMsg = "";
+        if (string.IsNullOrWhiteSpace(workflow.Name))
+        {
+            errorMsg = "Workflow name is required.";
+            return;
+        }
+
+        if (!workflow.Steps.Any())
+        {
+            errorMsg = "At least one workflow step is required.";
+            return;
+        }
+
+        foreach (var step in workflow.Steps)
+        {
+            if (string.IsNullOrWhiteSpace(step.Name))
+            {
+                errorMsg = "Each workflow step must have a name.";
+                return;
+            }
+
+            if (step.StepType == WorkflowStepType.AgentTask && string.IsNullOrWhiteSpace(step.AgentId))
+            {
+                errorMsg = $"Step '{step.Name}' needs an agent.";
+                return;
+            }
+
+            if (step.StepType == WorkflowStepType.SwarmDispatch && string.IsNullOrWhiteSpace(step.SwarmId))
+            {
+                errorMsg = $"Step '{step.Name}' needs a swarm.";
+                return;
+            }
+        }
+
+        isSaving = true;
+        try
+        {
+            NormalizeStepOrder();
+            if (isEditMode)
+                await WorkflowService.UpdateAsync(workflow);
+            else
+                workflow = await WorkflowService.CreateAsync(workflow);
+
+            Nav.NavigateTo($"/workflows/{workflow.Id}");
+        }
+        catch (Exception ex)
+        {
+            errorMsg = ex.Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+}

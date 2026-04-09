@@ -71,6 +71,17 @@ public class SwarmService
 
     public async Task DispatchTaskToSwarmAsync(string swarmId, string taskName, string input, TaskPriority priority = TaskPriority.Medium)
     {
+        await ExecuteSwarmAsync(swarmId, taskName, input, priority, null, null);
+    }
+
+    public async Task<SwarmDispatchResult> ExecuteSwarmAsync(
+        string swarmId,
+        string taskName,
+        string input,
+        TaskPriority priority = TaskPriority.Medium,
+        WorkflowTaskContext? workflowContext = null,
+        string? promptOverride = null)
+    {
         await using var db = _factory.CreateDbContext();
         var swarm = await db.Swarms.Include(s => s.Agents).FirstOrDefaultAsync(s => s.Id == swarmId)
                     ?? throw new InvalidOperationException("Swarm not found");
@@ -78,67 +89,115 @@ public class SwarmService
         var activeAgents = swarm.Agents.Where(a => a.Status is AgentStatus.Active or AgentStatus.Idle).ToList();
         if (!activeAgents.Any()) throw new InvalidOperationException("No active agents in swarm");
 
+        var result = new SwarmDispatchResult();
+
         // Dispatch based on strategy
         switch (swarm.Strategy)
         {
             case SwarmStrategy.Parallel:
                 foreach (var agent in activeAgents)
-                    await _taskService.CreateAndRunAsync(agent.Id, taskName, input, priority, TriggerSource.Swarm);
+                {
+                    var task = workflowContext == null
+                        ? await _taskService.CreateAndRunAsync(agent.Id, taskName, input, priority, TriggerSource.Swarm)
+                        : await _taskService.CreateAndRunForWorkflowAsync(agent.Id, taskName, input, priority, TriggerSource.Swarm, workflowContext, promptOverride);
+                    result.TaskIds.Add(task.Id);
+                }
                 break;
 
             case SwarmStrategy.Sequential:
                 foreach (var agent in activeAgents)
                 {
-                    var task = await _taskService.CreateAndRunAsync(agent.Id, taskName, input, priority, TriggerSource.Swarm);
+                    var task = workflowContext == null
+                        ? await _taskService.CreateAndRunAsync(agent.Id, taskName, input, priority, TriggerSource.Swarm)
+                        : await _taskService.CreateAndRunForWorkflowAsync(agent.Id, taskName, input, priority, TriggerSource.Swarm, workflowContext, promptOverride);
+                    result.TaskIds.Add(task.Id);
                     await WaitForTaskCompletionAsync(task.Id);
                 }
+                result.FinalOutput = (await WaitForTaskCompletionAsync(result.TaskIds)).LastOrDefault(t => t.Status == AgentTaskStatus.Completed)?.Output ?? string.Empty;
                 break;
 
             case SwarmStrategy.Voting:
                 var votingTasks = new List<AgentTask>();
                 foreach (var agent in activeAgents)
-                    votingTasks.Add(await _taskService.CreateAndRunAsync(agent.Id, taskName, input, priority, TriggerSource.Swarm));
+                {
+                    var task = workflowContext == null
+                        ? await _taskService.CreateAndRunAsync(agent.Id, taskName, input, priority, TriggerSource.Swarm)
+                        : await _taskService.CreateAndRunForWorkflowAsync(agent.Id, taskName, input, priority, TriggerSource.Swarm, workflowContext, promptOverride);
+                    votingTasks.Add(task);
+                    result.TaskIds.Add(task.Id);
+                }
 
                 var votingResults = await WaitForTaskCompletionAsync(votingTasks.Select(t => t.Id));
-                await LogSwarmOutcomeAsync(swarm, taskName, DetermineWinningOutput(votingResults, "Voting"));
+                result.FinalOutput = DetermineWinningOutput(votingResults, "Voting");
+                await LogSwarmOutcomeAsync(swarm, taskName, result.FinalOutput);
                 break;
 
             case SwarmStrategy.Pipeline:
                 var pipelineInput = input;
                 foreach (var agent in activeAgents)
                 {
-                    var task = await _taskService.CreateAndRunAsync(agent.Id, taskName, pipelineInput, priority, TriggerSource.Swarm);
+                    var task = workflowContext == null
+                        ? await _taskService.CreateAndRunAsync(agent.Id, taskName, pipelineInput, priority, TriggerSource.Swarm)
+                        : await _taskService.CreateAndRunForWorkflowAsync(agent.Id, taskName, pipelineInput, priority, TriggerSource.Swarm, workflowContext, promptOverride);
+                    result.TaskIds.Add(task.Id);
                     var completed = await WaitForTaskCompletionAsync(task.Id);
                     if (!string.IsNullOrWhiteSpace(completed?.Output))
                         pipelineInput = completed.Output;
                 }
+                result.FinalOutput = pipelineInput;
                 await LogSwarmOutcomeAsync(swarm, taskName, pipelineInput);
                 break;
 
             case SwarmStrategy.OrchestratorWorker:
                 var orchestrator = activeAgents.First();
-                var workerSeedTask = await _taskService.CreateAndRunAsync(orchestrator.Id, $"{taskName} - orchestration", input, priority, TriggerSource.Swarm);
+                var workerSeedTask = workflowContext == null
+                    ? await _taskService.CreateAndRunAsync(orchestrator.Id, $"{taskName} - orchestration", input, priority, TriggerSource.Swarm)
+                    : await _taskService.CreateAndRunForWorkflowAsync(orchestrator.Id, $"{taskName} - orchestration", input, priority, TriggerSource.Swarm, workflowContext, promptOverride);
+                result.TaskIds.Add(workerSeedTask.Id);
                 var orchestrated = await WaitForTaskCompletionAsync(workerSeedTask.Id);
                 var workerInput = orchestrated?.Output ?? input;
 
                 var workerTasks = new List<AgentTask>();
                 foreach (var worker in activeAgents.Skip(1))
-                    workerTasks.Add(await _taskService.CreateAndRunAsync(worker.Id, taskName, workerInput, priority, TriggerSource.Swarm));
+                {
+                    var task = workflowContext == null
+                        ? await _taskService.CreateAndRunAsync(worker.Id, taskName, workerInput, priority, TriggerSource.Swarm)
+                        : await _taskService.CreateAndRunForWorkflowAsync(worker.Id, taskName, workerInput, priority, TriggerSource.Swarm, workflowContext, promptOverride);
+                    workerTasks.Add(task);
+                    result.TaskIds.Add(task.Id);
+                }
 
                 var workerResults = workerTasks.Any()
                     ? await WaitForTaskCompletionAsync(workerTasks.Select(t => t.Id))
                     : new List<AgentTask>();
 
-                await LogSwarmOutcomeAsync(swarm, taskName, DetermineWinningOutput(workerResults, "Orchestrator"));
+                result.FinalOutput = DetermineWinningOutput(workerResults, "Orchestrator");
+                await LogSwarmOutcomeAsync(swarm, taskName, result.FinalOutput);
                 break;
 
             default:
                 foreach (var agent in activeAgents)
-                    await _taskService.CreateAndRunAsync(agent.Id, taskName, input, priority, TriggerSource.Swarm);
+                {
+                    var task = workflowContext == null
+                        ? await _taskService.CreateAndRunAsync(agent.Id, taskName, input, priority, TriggerSource.Swarm)
+                        : await _taskService.CreateAndRunForWorkflowAsync(agent.Id, taskName, input, priority, TriggerSource.Swarm, workflowContext, promptOverride);
+                    result.TaskIds.Add(task.Id);
+                }
                 break;
         }
 
+        if (result.TaskIds.Any())
+        {
+            var completedTasks = await WaitForTaskCompletionAsync(result.TaskIds);
+            result.CompletedTaskCount = completedTasks.Count(t => t.Status == AgentTaskStatus.Completed);
+            result.FailedTaskCount = completedTasks.Count(t => t.Status == AgentTaskStatus.Failed);
+
+            if (string.IsNullOrWhiteSpace(result.FinalOutput))
+                result.FinalOutput = completedTasks.LastOrDefault(t => t.Status == AgentTaskStatus.Completed)?.Output ?? string.Empty;
+        }
+
         await _realtime.DashboardRefreshAsync();
+        return result;
     }
 
     public async Task DeleteSwarmAsync(string id)
@@ -255,7 +314,7 @@ public class SwarmService
         {
             await using var db = _factory.CreateDbContext();
             var tasks = await db.Tasks.Where(t => ids.Contains(t.Id)).ToListAsync();
-            if (tasks.All(t => t.Status is AgentTaskStatus.Completed or AgentTaskStatus.Failed or AgentTaskStatus.Cancelled))
+            if (tasks.All(t => t.Status is AgentTaskStatus.Completed or AgentTaskStatus.Failed or AgentTaskStatus.Cancelled or AgentTaskStatus.PendingApproval))
                 return tasks;
 
             await Task.Delay(1000);

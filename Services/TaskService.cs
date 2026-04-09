@@ -57,7 +57,37 @@ public class TaskService
 
     public async Task<AgentTask> CreateAndRunAsync(string agentId, string taskName, string input,
         TaskPriority priority = TaskPriority.Medium, TriggerSource trigger = TriggerSource.Manual)
-        => await CreateAndRunInternalAsync(agentId, taskName, input, priority, trigger, null, null);
+        => await CreateAndRunInternalAsync(agentId, taskName, input, priority, trigger, null, null, null);
+
+    public async Task<AgentTask> CreateAndRunForWorkflowAsync(
+        string agentId,
+        string taskName,
+        string input,
+        TaskPriority priority,
+        TriggerSource trigger,
+        WorkflowTaskContext workflowContext,
+        string? promptOverride = null)
+    {
+        TaskExecutionProfile? executionProfile = null;
+
+        if (!string.IsNullOrWhiteSpace(promptOverride))
+        {
+            executionProfile = new TaskExecutionProfile
+            {
+                RuntimeAgent = await BuildExecutionAgentForPromptOverrideAsync(agentId, promptOverride)
+            };
+        }
+
+        return await CreateAndRunInternalAsync(
+            agentId,
+            taskName,
+            input,
+            priority,
+            trigger,
+            executionProfile,
+            null,
+            workflowContext);
+    }
 
     private async Task<AgentTask> CreateAndRunInternalAsync(
         string agentId,
@@ -66,7 +96,8 @@ public class TaskService
         TaskPriority priority,
         TriggerSource trigger,
         TaskExecutionProfile? executionProfile,
-        string? replayOfTaskId)
+        string? replayOfTaskId,
+        WorkflowTaskContext? workflowContext)
     {
         await using var db = _factory.CreateDbContext();
 
@@ -107,6 +138,9 @@ public class TaskService
             ApprovalEvidence = BuildApprovalEvidence(executionAgent, input, effectiveSkills, effectiveMcpServers),
             ExecutionBackendSnapshot = executionAgent.ExecutionBackend,
             ReplayOfTaskId = replayOfTaskId,
+            WorkflowRunId = workflowContext?.WorkflowRunId,
+            WorkflowStepId = workflowContext?.WorkflowStepId,
+            WorkflowStepRunId = workflowContext?.WorkflowStepRunId,
             CreatedAt = DateTime.UtcNow,
             StartedAt = DateTime.UtcNow,
             Progress = 0
@@ -354,7 +388,44 @@ public class TaskService
             originalTask.Priority,
             TriggerSource.Manual,
             new TaskExecutionProfile { RuntimeAgent = replayAgent },
-            originalTask.Id);
+            originalTask.Id,
+            null);
+    }
+
+    private async Task<Agent> BuildExecutionAgentForPromptOverrideAsync(string agentId, string promptOverride)
+    {
+        await using var db = _factory.CreateDbContext();
+        var persistedAgent = await db.Agents
+            .Include(a => a.LLMProvider)
+            .Include(a => a.MCPServers).ThenInclude(m => m.MCPServer)
+            .Include(a => a.Skills).ThenInclude(s => s.SkillDefinition)
+            .FirstOrDefaultAsync(a => a.Id == agentId)
+                ?? throw new InvalidOperationException("Agent not found");
+
+        return new Agent
+        {
+            Id = persistedAgent.Id,
+            Name = persistedAgent.Name,
+            Type = persistedAgent.Type,
+            Description = persistedAgent.Description,
+            LLMProviderId = persistedAgent.LLMProviderId,
+            LLMProvider = persistedAgent.LLMProvider,
+            SystemPrompt = promptOverride,
+            ExecutionBackend = persistedAgent.ExecutionBackend,
+            RequiresApproval = persistedAgent.RequiresApproval,
+            ConfidenceThreshold = persistedAgent.ConfidenceThreshold,
+            SpawnEnabled = persistedAgent.SpawnEnabled,
+            SpawnMode = persistedAgent.SpawnMode,
+            SpawnTriggerType = persistedAgent.SpawnTriggerType,
+            SpawnTrigger = persistedAgent.SpawnTrigger,
+            MaxSpawns = persistedAgent.MaxSpawns,
+            MaxDepth = persistedAgent.MaxDepth,
+            ChildPromptTemplate = persistedAgent.ChildPromptTemplate,
+            SpawnLifecycle = persistedAgent.SpawnLifecycle,
+            SpawnAggregation = persistedAgent.SpawnAggregation,
+            MCPServers = persistedAgent.MCPServers,
+            Skills = persistedAgent.Skills
+        };
     }
 
     private async Task ExecuteTaskAsync(string taskId, Agent agent, CancellationToken cancellationToken)
