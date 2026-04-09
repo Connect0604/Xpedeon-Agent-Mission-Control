@@ -1,0 +1,197 @@
+@page "/workflows"
+@rendermode InteractiveServer
+@implements IDisposable
+@inject WorkflowService WorkflowService
+@inject RealtimeService RealtimeService
+@inject NavigationManager Nav
+
+<PageTitle>Workflows - Xpedeon AMC</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Workflows</h1>
+        <p class="page-subtitle">Chain existing agents and swarms into reusable operational workflows.</p>
+    </div>
+    <button class="btn btn-primary" @onclick='() => Nav.NavigateTo("/workflows/create")'>
+        <i class="bi bi-plus-lg"></i> New Workflow
+    </button>
+</div>
+
+@if (!workflows.Any())
+{
+    <div class="card card-pad empty-state">
+        <div class="empty-icon"><i class="bi bi-diagram-2"></i></div>
+        <div class="empty-title">No workflows yet</div>
+        <div class="empty-desc">Create a workflow to orchestrate agents and swarms as a reusable process.</div>
+    </div>
+}
+else
+{
+    <div class="swarm-grid">
+        @foreach (var workflow in workflows)
+        {
+            var latestRun = workflow.Runs.OrderByDescending(r => r.CreatedAt).FirstOrDefault();
+            <div class="swarm-card">
+                <div class="swarm-card__header">
+                    <div class="swarm-icon">
+                        <i class="bi bi-diagram-2"></i>
+                    </div>
+                    <div class="swarm-card__meta">
+                        <div class="swarm-card__name">@workflow.Name</div>
+                        <div class="text-xs text-muted">@workflow.Description</div>
+                    </div>
+                    <span class="badge @(workflow.IsActive ? "badge-success" : "badge-warning") ml-auto">
+                        @(workflow.IsActive ? "Active" : "Inactive")
+                    </span>
+                </div>
+
+                <div class="swarm-stats">
+                    <div class="swarm-stat">
+                        <span class="swarm-stat__val">@workflow.Steps.Count</span>
+                        <span class="swarm-stat__lbl">Steps</span>
+                    </div>
+                    <div class="swarm-stat">
+                        <span class="swarm-stat__val">@workflow.Runs.Count</span>
+                        <span class="swarm-stat__lbl">Runs</span>
+                    </div>
+                    <div class="swarm-stat">
+                        <span class="swarm-stat__val">@workflow.Version</span>
+                        <span class="swarm-stat__lbl">Version</span>
+                    </div>
+                    <div class="swarm-stat">
+                        <span class="swarm-stat__val">@(latestRun?.Status.ToString() ?? "—")</span>
+                        <span class="swarm-stat__lbl">Latest</span>
+                    </div>
+                </div>
+
+                <div class="swarm-agent-pills">
+                    @foreach (var step in workflow.Steps.OrderBy(s => s.StepOrder).Take(4))
+                    {
+                        <span class="swarm-agent-pill idle">
+                            <i class="bi @(step.StepType == WorkflowStepType.AgentTask ? "bi-robot" : step.StepType == WorkflowStepType.SwarmDispatch ? "bi-diagram-3" : "bi-shield-check")"></i>
+                            @step.Name
+                        </span>
+                    }
+                </div>
+
+                <div class="swarm-card__footer">
+                    <span class="text-xs text-muted">
+                        <i class="bi bi-calendar3"></i> @workflow.CreatedAt.ToString("MMM d, yyyy")
+                    </span>
+                    <div class="ml-auto" style="display:flex;gap:var(--s2);">
+                        <button class="btn btn-ghost btn-sm" @onclick='() => Nav.NavigateTo($"/workflows/{workflow.Id}")'>
+                            <i class="bi bi-eye"></i> Open
+                        </button>
+                        <button class="btn btn-ghost btn-sm" @onclick='() => Nav.NavigateTo($"/workflows/{workflow.Id}/edit")'>
+                            <i class="bi bi-pencil"></i> Edit
+                        </button>
+                        <button class="btn btn-ghost btn-sm text-error" @onclick="() => ConfirmDelete(workflow.Id)">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@if (deletingWorkflowId != null)
+{
+    <div class="modal-backdrop" @onclick="CloseDeletePrompt">
+        <div class="modal modal--sm" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2 class="modal-title text-error">Delete Workflow</h2>
+                <button class="modal-close" @onclick="CloseDeletePrompt"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-secondary">Permanently delete <strong class="text-primary">@workflows.FirstOrDefault(w => w.Id == deletingWorkflowId)?.Name</strong>?</p>
+                <p class="text-muted text-sm mt-2">This removes the workflow definition and run history links for this workflow.</p>
+                @if (!string.IsNullOrWhiteSpace(deleteError))
+                {
+                    <div class="alert alert-error mt-4">@deleteError</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" @onclick="CloseDeletePrompt">Cancel</button>
+                <button class="btn btn-danger" @onclick="DeleteWorkflowAsync" disabled="@isDeleting">
+                    @if (isDeleting) { <span class="spinner"></span> }
+                    @(isDeleting ? "Deleting..." : "Delete Permanently")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<AgentWorkflow> workflows = new();
+    private Timer? _timer;
+    private string? deletingWorkflowId;
+    private string deleteError = "";
+    private bool isDeleting;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        RealtimeService.RefreshRequested += HandleRealtimeChange;
+        _timer = new Timer(async _ =>
+        {
+            await LoadAsync();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private async Task LoadAsync()
+    {
+        workflows = await WorkflowService.GetAllAsync();
+    }
+
+    private void ConfirmDelete(string workflowId)
+    {
+        deletingWorkflowId = workflowId;
+        deleteError = "";
+    }
+
+    private void CloseDeletePrompt()
+    {
+        deletingWorkflowId = null;
+        deleteError = "";
+    }
+
+    private async Task DeleteWorkflowAsync()
+    {
+        if (string.IsNullOrWhiteSpace(deletingWorkflowId))
+            return;
+
+        isDeleting = true;
+        deleteError = "";
+        try
+        {
+            await WorkflowService.DeleteAsync(deletingWorkflowId);
+            CloseDeletePrompt();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            deleteError = ex.Message;
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
+
+    private void HandleRealtimeChange()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        RealtimeService.RefreshRequested -= HandleRealtimeChange;
+    }
+}

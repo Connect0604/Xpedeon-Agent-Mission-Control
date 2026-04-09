@@ -49,6 +49,7 @@ builder.Services.AddScoped<TemplateService>();
 builder.Services.AddScoped<SkillService>();
 builder.Services.AddScoped<EvaluationService>();
 builder.Services.AddScoped<SwarmService>();
+builder.Services.AddScoped<WorkflowService>();
 builder.Services.AddScoped<SelfLearningService>();
 builder.Services.AddScoped<ScheduleService>();
 builder.Services.AddScoped<DynamicSpawnService>();

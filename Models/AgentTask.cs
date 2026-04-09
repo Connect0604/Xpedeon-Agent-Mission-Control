@@ -72,6 +72,9 @@ public class AgentTask
     // Chaining
     public string? ParentTaskId { get; set; }
     public string? NextAgentId { get; set; }
+    public string? WorkflowRunId { get; set; }
+    public string? WorkflowStepId { get; set; }
+    public string? WorkflowStepRunId { get; set; }
 
     // Dynamic Spawning
     public int SpawnDepth { get; set; } = 0;

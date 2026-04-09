@@ -1,0 +1,459 @@
+@page "/workflows/{WorkflowId}"
+@rendermode InteractiveServer
+@implements IDisposable
+@inject WorkflowService WorkflowService
+@inject NavigationManager Nav
+@inject RealtimeService RealtimeService
+
+<PageTitle>Workflow Detail - Xpedeon AMC</PageTitle>
+
+@if (workflow == null)
+{
+    <div class="empty-state">
+        <div class="empty-icon"><i class="bi bi-diagram-2"></i></div>
+        <div class="empty-title">Workflow not found</div>
+        <div class="empty-desc">The requested workflow could not be loaded.</div>
+    </div>
+}
+else
+{
+    <div class="page-header">
+        <div>
+            <h1 class="page-title">@workflow.Name</h1>
+            <p class="page-subtitle">@workflow.Description</p>
+        </div>
+        <div style="display:flex;gap:var(--s2);">
+            <button class="btn btn-ghost text-error" @onclick="OpenDeleteModal">
+                <i class="bi bi-trash"></i> Delete
+            </button>
+            <button class="btn btn-ghost" @onclick='() => Nav.NavigateTo($"/workflows/{workflow.Id}/edit")'>
+                <i class="bi bi-pencil"></i> Edit
+            </button>
+            <button class="btn btn-primary" @onclick="OpenRunModal">
+                <i class="bi bi-play-fill"></i> Run Workflow
+            </button>
+        </div>
+    </div>
+
+    <div class="g-2">
+        <div class="card card-pad">
+            <div class="section-head"><i class="bi bi-list-ol"></i> Definition</div>
+            <div class="stack-list mt-4">
+                @foreach (var step in workflow.Steps.OrderBy(s => s.StepOrder))
+                {
+                    <div class="stack-row">
+                        <div class="stack-row__main">
+                            <div class="stack-row__title">Step @step.StepOrder: @step.Name</div>
+                            <div class="stack-row__meta">
+                                @step.StepType
+                                @if (!string.IsNullOrWhiteSpace(step.Agent?.Name))
+                                {
+                                    <span>· @step.Agent?.Name</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(step.Swarm?.Name))
+                                {
+                                    <span>· @step.Swarm?.Name</span>
+                                }
+                            </div>
+                        </div>
+                        <div class="stack-row__actions">
+                            @if (step.RequireApproval || step.StepType == WorkflowStepType.ApprovalGate)
+                            {
+                                <span class="provider-state warning">Approval</span>
+                            }
+                            @if (step.ContinueOnFailure)
+                            {
+                                <span class="provider-state idle">Continue</span>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="card card-pad">
+            <div class="section-head"><i class="bi bi-clock-history"></i> Recent Runs</div>
+            @if (!workflow.Runs.Any())
+            {
+                <div class="empty-desc mt-4">No workflow runs yet.</div>
+            }
+            else
+            {
+                <div class="stack-list mt-4">
+                    @foreach (var run in workflow.Runs.OrderByDescending(r => r.CreatedAt).Take(10))
+                    {
+                        <button class="stack-row" style="width:100%;text-align:left;border:none;background:transparent;" @onclick="() => SelectRun(run.Id)">
+                            <div class="stack-row__main">
+                                <div class="stack-row__title">@run.Id</div>
+                                <div class="stack-row__meta">Started @(run.StartedAt?.ToLocalTime().ToString("dd MMM HH:mm") ?? "Not started")</div>
+                            </div>
+                            <div class="stack-row__actions">
+                                <span class="provider-state @RunTone(run.Status)">@run.Status</span>
+                            </div>
+                        </button>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="card card-pad mt-4">
+        <div class="section-head"><i class="bi bi-activity"></i> Run Detail</div>
+        @if (selectedRun == null)
+        {
+            <div class="empty-desc mt-4">Select a workflow run to inspect its step execution.</div>
+        }
+        else
+        {
+            <div class="token-stats mt-4">
+                <div class="token-stat">
+                    <span class="text-muted text-xs">Status</span>
+                    <span>@selectedRun.Status</span>
+                </div>
+                <div class="token-stat">
+                    <span class="text-muted text-xs">Current Step</span>
+                    <span>@selectedRun.CurrentStepOrder</span>
+                </div>
+                <div class="token-stat">
+                    <span class="text-muted text-xs">Started</span>
+                    <span>@(selectedRun.StartedAt?.ToLocalTime().ToString("dd MMM HH:mm:ss") ?? "—")</span>
+                </div>
+                <div class="token-stat">
+                    <span class="text-muted text-xs">Completed</span>
+                    <span>@(selectedRun.CompletedAt?.ToLocalTime().ToString("dd MMM HH:mm:ss") ?? "—")</span>
+                </div>
+            </div>
+
+            @if (selectedRun.Status == WorkflowRunStatus.Running || selectedRun.Status == WorkflowRunStatus.PendingApproval)
+            {
+                <div class="feedback-row mt-4">
+                    <button class="btn btn-ghost btn-sm text-error" @onclick="() => CancelRun(selectedRun.Id)">
+                        <i class="bi bi-stop-circle"></i> Cancel Run
+                    </button>
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(selectedRun.Input))
+            {
+                <div class="form-group mt-4">
+                    <label class="form-label text-xs text-muted">Run Input</label>
+                    <div class="output-box">@selectedRun.Input</div>
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(selectedRun.Output))
+            {
+                <div class="form-group">
+                    <label class="form-label text-xs text-muted">Run Output</label>
+                    <div class="output-box output-box--success">@selectedRun.Output</div>
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(selectedRun.ErrorMessage))
+            {
+                <div class="form-group">
+                    <label class="form-label text-xs text-muted">Run Error</label>
+                    <div class="output-box output-box--error">@selectedRun.ErrorMessage</div>
+                </div>
+            }
+
+            <div class="stack-list mt-4">
+                @foreach (var stepRun in selectedStepRuns)
+                {
+                    <div class="card card-pad">
+                        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:var(--s3);">
+                            <div>
+                                <div class="text-sm font-medium">Step @stepRun.StepOrder: @stepRun.StepNameSnapshot</div>
+                                <div class="text-xs text-muted">Status: @stepRun.Status</div>
+                            </div>
+                            <div style="display:flex;gap:var(--s2);flex-wrap:wrap;">
+                                @if (stepRun.Status == WorkflowRunStatus.PendingApproval)
+                                {
+                                    <button class="btn btn-primary btn-sm" @onclick="() => ApproveStep(stepRun.Id)">
+                                        <i class="bi bi-check-lg"></i> Approve
+                                    </button>
+                                }
+                                @if (stepRun.Status == WorkflowRunStatus.Failed)
+                                {
+                                    <button class="btn btn-ghost btn-sm" @onclick="() => RetryStep(stepRun.Id)">
+                                        <i class="bi bi-arrow-clockwise"></i> Retry
+                                    </button>
+                                }
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(stepRun.Input))
+                        {
+                            <div class="form-group mt-3">
+                                <label class="form-label text-xs text-muted">Input</label>
+                                <div class="output-box">@stepRun.Input</div>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(stepRun.Output))
+                        {
+                            <div class="form-group">
+                                <label class="form-label text-xs text-muted">Output</label>
+                                <div class="output-box output-box--success">@stepRun.Output</div>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(stepRun.ErrorMessage))
+                        {
+                            <div class="form-group">
+                                <label class="form-label text-xs text-muted">Error / Notes</label>
+                                <div class="output-box output-box--error">@stepRun.ErrorMessage</div>
+                            </div>
+                        }
+
+                        @{
+                            var linkedTasks = stepRunTasks.GetValueOrDefault(stepRun.Id) ?? new List<AgentTask>();
+                        }
+                        @if (linkedTasks.Any())
+                        {
+                            <div class="task-meta mt-3">
+                                @foreach (var task in linkedTasks)
+                                {
+                                    <span><i class="bi bi-link-45deg"></i> @task.Id (@task.Status)</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@if (showRunModal)
+{
+    <div class="modal-backdrop" @onclick="CloseRunModal">
+        <div class="modal modal--lg" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2 class="modal-title">Run Workflow</h2>
+                <button class="modal-close" @onclick="CloseRunModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Input</label>
+                    <textarea class="form-input prompt-editor" rows="6" @bind="runInput"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Priority</label>
+                    <select class="form-input" @bind="runPriority">
+                        @foreach (var p in Enum.GetValues<TaskPriority>())
+                        {
+                            <option value="@p">@p</option>
+                        }
+                    </select>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(runError))
+                {
+                    <div class="alert alert-error">@runError</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" @onclick="CloseRunModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="StartRunAsync" disabled="@isRunning">
+                    @if (isRunning) { <span class="spinner"></span> }
+                    <i class="bi bi-play-fill"></i> @(isRunning ? "Starting..." : "Run Workflow")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showDeleteModal && workflow != null)
+{
+    <div class="modal-backdrop" @onclick="CloseDeleteModal">
+        <div class="modal modal--sm" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2 class="modal-title text-error">Delete Workflow</h2>
+                <button class="modal-close" @onclick="CloseDeleteModal"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-secondary">Permanently delete <strong class="text-primary">@workflow.Name</strong>?</p>
+                <p class="text-muted text-sm mt-2">This removes the workflow definition and run history links for this workflow.</p>
+                @if (!string.IsNullOrWhiteSpace(deleteError))
+                {
+                    <div class="alert alert-error mt-4">@deleteError</div>
+                }
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost" @onclick="CloseDeleteModal">Cancel</button>
+                <button class="btn btn-danger" @onclick="DeleteWorkflowAsync" disabled="@isDeleting">
+                    @if (isDeleting) { <span class="spinner"></span> }
+                    @(isDeleting ? "Deleting..." : "Delete Permanently")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string WorkflowId { get; set; } = "";
+
+    private AgentWorkflow? workflow;
+    private WorkflowRun? selectedRun;
+    private List<WorkflowStepRun> selectedStepRuns = new();
+    private Dictionary<string, List<AgentTask>> stepRunTasks = new();
+    private bool showRunModal;
+    private bool isRunning;
+    private string runInput = "";
+    private string runError = "";
+    private TaskPriority runPriority = TaskPriority.Medium;
+    private Timer? _timer;
+    private bool showDeleteModal;
+    private bool isDeleting;
+    private string deleteError = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        RealtimeService.RefreshRequested += HandleRealtimeChange;
+        _timer = new Timer(async _ =>
+        {
+            await LoadAsync();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        workflow = await WorkflowService.GetByIdAsync(WorkflowId);
+        if (workflow == null)
+            return;
+
+        selectedRun ??= workflow.Runs.OrderByDescending(r => r.CreatedAt).FirstOrDefault();
+        if (selectedRun != null)
+        {
+            selectedRun = await WorkflowService.GetRunAsync(selectedRun.Id) ?? selectedRun;
+            selectedStepRuns = await WorkflowService.GetStepRunsAsync(selectedRun.Id);
+            stepRunTasks = new Dictionary<string, List<AgentTask>>();
+            foreach (var stepRun in selectedStepRuns)
+                stepRunTasks[stepRun.Id] = await WorkflowService.GetTasksForStepRunAsync(stepRun.Id);
+        }
+    }
+
+    private async Task SelectRun(string runId)
+    {
+        selectedRun = await WorkflowService.GetRunAsync(runId);
+        selectedStepRuns = selectedRun == null ? new List<WorkflowStepRun>() : await WorkflowService.GetStepRunsAsync(runId);
+        stepRunTasks = new Dictionary<string, List<AgentTask>>();
+        foreach (var stepRun in selectedStepRuns)
+            stepRunTasks[stepRun.Id] = await WorkflowService.GetTasksForStepRunAsync(stepRun.Id);
+    }
+
+    private void OpenRunModal()
+    {
+        showRunModal = true;
+        runError = "";
+        runInput = "";
+        runPriority = TaskPriority.Medium;
+    }
+
+    private void CloseRunModal()
+    {
+        showRunModal = false;
+        runError = "";
+    }
+
+    private void OpenDeleteModal()
+    {
+        showDeleteModal = true;
+        deleteError = "";
+    }
+
+    private void CloseDeleteModal()
+    {
+        showDeleteModal = false;
+        deleteError = "";
+    }
+
+    private async Task StartRunAsync()
+    {
+        isRunning = true;
+        runError = "";
+        try
+        {
+            var run = await WorkflowService.StartRunAsync(WorkflowId, runInput, runPriority);
+            selectedRun = run;
+            showRunModal = false;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            runError = ex.Message;
+        }
+        finally
+        {
+            isRunning = false;
+        }
+    }
+
+    private async Task ApproveStep(string workflowStepRunId)
+    {
+        await WorkflowService.ApproveStepAsync(workflowStepRunId, null);
+        await LoadAsync();
+    }
+
+    private async Task RetryStep(string workflowStepRunId)
+    {
+        await WorkflowService.RetryStepAsync(workflowStepRunId);
+        await LoadAsync();
+    }
+
+    private async Task CancelRun(string workflowRunId)
+    {
+        await WorkflowService.CancelRunAsync(workflowRunId);
+        await LoadAsync();
+    }
+
+    private async Task DeleteWorkflowAsync()
+    {
+        isDeleting = true;
+        deleteError = "";
+        try
+        {
+            await WorkflowService.DeleteAsync(WorkflowId);
+            Nav.NavigateTo("/workflows");
+        }
+        catch (Exception ex)
+        {
+            deleteError = ex.Message;
+        }
+        finally
+        {
+            isDeleting = false;
+        }
+    }
+
+    private void HandleRealtimeChange()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        });
+    }
+
+    private static string RunTone(WorkflowRunStatus status) => status switch
+    {
+        WorkflowRunStatus.Completed => "success",
+        WorkflowRunStatus.PendingApproval => "warning",
+        WorkflowRunStatus.Failed => "danger",
+        WorkflowRunStatus.Cancelled => "idle",
+        _ => "info"
+    };
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        RealtimeService.RefreshRequested -= HandleRealtimeChange;
+    }
+}
