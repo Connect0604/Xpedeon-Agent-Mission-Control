@@ -356,6 +356,12 @@ else
                             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s4);">
                                 <h3 class="section-title">@selectedTask.Name</h3>
                                 <div style="display:flex;gap:var(--s2);align-items:center;">
+                                    @if (selectedTask.Status == AgentTaskStatus.Running)
+                                    {
+                                        <button class="btn btn-danger btn-sm" @onclick="() => ForceStopTask(selectedTask)" disabled="@isStoppingTask">
+                                            <i class="bi bi-stop-circle"></i> @(isStoppingTask ? "Stopping..." : "Force Stop")
+                                        </button>
+                                    }
                                     @if (selectedTask.Status != AgentTaskStatus.Running && selectedTask.Status != AgentTaskStatus.PendingApproval)
                                     {
                                         <button class="btn btn-ghost btn-sm" @onclick="() => RetryTask(selectedTask)" disabled="@isRetrying">
@@ -472,6 +478,14 @@ else
                         <button class="btn btn-primary btn-sm" @onclick="() => ApproveTask(selectedTask.Id, approvalCommentDraft)">
                             <i class="bi bi-check-lg"></i> Approve
                         </button>
+                    </div>
+                }
+
+                @if (selectedTask.Status == AgentTaskStatus.Running)
+                {
+                    <div class="card card-pad mt-4" style="border-color:var(--c-warning-border);background:var(--c-warning-bg);">
+                        <div class="text-sm font-medium text-primary">Stuck task controls</div>
+                        <div class="text-xs text-muted mt-1">Force Stop cancels the active task immediately. Hermes/OpenClaw runs get a remote cancel too. Local runs are cooperative cancellations, not direct OS process termination.</div>
                     </div>
                 }
 
@@ -751,6 +765,7 @@ else
     private bool isRunning;
     private bool isRetrying;
     private bool isReplaying;
+    private bool isStoppingTask;
     private string approvalCommentDraft = "";
     private string runError = "";
 
@@ -847,6 +862,26 @@ else
     {
         await TaskService.CancelTaskAsync(taskId, approvalComment);
         await RefreshAsync();
+    }
+
+    private async Task ForceStopTask(AgentTask task)
+    {
+        isStoppingTask = true;
+        runError = "";
+        try
+        {
+            await TaskService.ForceStopTaskAsync(task.Id, "Force-stopped from agent detail.");
+            await RefreshAsync();
+            selectedTask = agentTasks.FirstOrDefault(t => t.Id == task.Id) ?? selectedTask;
+        }
+        catch (Exception ex)
+        {
+            runError = ex.Message;
+        }
+        finally
+        {
+            isStoppingTask = false;
+        }
     }
 
     private void SelectTask(AgentTask task)

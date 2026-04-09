@@ -83,6 +83,7 @@ public class AgentTask
 
     // Navigation
     public Agent? Agent { get; set; }
+    public List<TaskExecutionEvent> ExecutionEvents { get; set; } = new();
 
     public TimeSpan? Duration => Status == AgentTaskStatus.Running && StartedAt.HasValue
         ? DateTime.UtcNow - StartedAt.Value

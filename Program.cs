@@ -60,6 +60,7 @@ builder.Services.AddHostedService<HermesOpenClawSyncService>();
 builder.Services.AddScoped<MemoryService>();
 builder.Services.AddScoped<LLMExecutionService>();
 builder.Services.AddScoped<LogService>();
+builder.Services.AddScoped<TaskExecutionEventService>();
 builder.Services.AddSingleton<RealtimeService>();
 builder.Services.AddSingleton<MockDataService>(); // kept for sim feed
 

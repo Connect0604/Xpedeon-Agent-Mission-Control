@@ -18,19 +18,22 @@ public class DynamicSpawnService
     private readonly IServiceProvider _services;
     private readonly ILogger<DynamicSpawnService> _logger;
     private readonly RealtimeService _realtime;
+    private readonly TaskExecutionEventService _events;
 
     public DynamicSpawnService(
         IDbContextFactory<AppDbContext> factory,
         LLMExecutionService llm,
         IServiceProvider services,
         ILogger<DynamicSpawnService> logger,
-        RealtimeService realtime)
+        RealtimeService realtime,
+        TaskExecutionEventService events)
     {
         _factory = factory;
         _llm = llm;
         _services = services;
         _logger = logger;
         _realtime = realtime;
+        _events = events;
     }
 
     // ── Entry point called from TaskService ──────────────────────────
@@ -60,6 +63,18 @@ public class DynamicSpawnService
 
             parentTask.Progress = 5;
             await db.SaveChangesAsync();
+            await _events.LogAsync(
+                parentTask.Id,
+                parentTask.AgentId,
+                TaskExecutionEventType.SpawnStarted,
+                "Dynamic spawning started.",
+                new
+                {
+                    parentAgent.SpawnMode,
+                    parentAgent.SpawnAggregation,
+                    parentAgent.MaxSpawns,
+                    parentAgent.MaxDepth
+                });
             await _realtime.TaskUpdatedAsync(parentTask.Id, parentTask.AgentId);
 
             // Decompose into sub-tasks
@@ -80,6 +95,15 @@ public class DynamicSpawnService
             parentTask.SpawnChildCount = subTasks.Count;
             parentTask.Progress = 10;
             await db.SaveChangesAsync();
+            await _events.LogAsync(
+                parentTask.Id,
+                parentTask.AgentId,
+                TaskExecutionEventType.SpawnDecomposed,
+                $"Task decomposed into {subTasks.Count} child work item(s).",
+                new
+                {
+                    Children = subTasks.Select(s => new { s.Name, InputPreview = s.Input[..Math.Min(120, s.Input.Length)] }).ToList()
+                });
             await _realtime.TaskUpdatedAsync(parentTask.Id, parentTask.AgentId);
 
             _logger.LogInformation("Spawning {Count} child agents for task {TaskId}", subTasks.Count, parentTaskId);
@@ -91,6 +115,13 @@ public class DynamicSpawnService
                 cancellationToken.ThrowIfCancellationRequested();
                 var childAgent = await SpawnChildAgentAsync(parentAgent, childName, childPrompt, parentTask.SpawnDepth + 1);
                 var childTaskId = await CreateChildTaskAsync(childAgent, parentTaskId, childName, childInput, parentTask.Priority, parentTask.SpawnDepth + 1, cancellationToken);
+                await _events.LogAsync(
+                    parentTask.Id,
+                    parentTask.AgentId,
+                    TaskExecutionEventType.SpawnChildCreated,
+                    $"Spawned child task '{childName}'.",
+                    new { ChildAgentId = childAgent.Id, ChildAgentName = childAgent.Name, ChildInput = childInput },
+                    relatedTaskId: childTaskId);
                 childTaskIds.Add(childTaskId);
             }
 
@@ -107,6 +138,17 @@ public class DynamicSpawnService
             // Aggregate results
             var childOutputs = await CollectChildOutputsAsync(childTaskIds);
             var aggregated = await AggregateAsync(parentAgent, childOutputs);
+            await _events.LogAsync(
+                parentTask.Id,
+                parentTask.AgentId,
+                TaskExecutionEventType.SpawnAggregationCompleted,
+                $"Aggregation completed using {parentAgent.SpawnAggregation}.",
+                new
+                {
+                    parentAgent.SpawnAggregation,
+                    ChildTaskIds = childTaskIds,
+                    ChildCount = childOutputs.Count
+                });
 
             // Write result back to parent task
             parentTask.Output = aggregated;
@@ -341,6 +383,13 @@ Do not include any text outside the JSON array.";
 
         db.Tasks.Add(task);
         await db.SaveChangesAsync();
+        await _events.LogAsync(
+            task.Id,
+            task.AgentId,
+            TaskExecutionEventType.TaskCreated,
+            "Child task created from dynamic spawning.",
+            new { ParentTaskId = parentTaskId, task.SpawnDepth },
+            relatedTaskId: parentTaskId);
         await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
 
         // Load child agent with LLMProvider for execution
@@ -367,7 +416,7 @@ Do not include any text outside the JSON array.";
             await db.SaveChangesAsync();
             await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
 
-            var result = await _llm.ExecuteAsync(agent, task.Input ?? string.Empty, task.SystemPromptSnapshot ?? agent.SystemPrompt, cancellationToken);
+            var result = await _llm.ExecuteAsync(agent, task.Input ?? string.Empty, task.SystemPromptSnapshot ?? agent.SystemPrompt, cancellationToken, task.Id);
 
             task.Output             = result.Output;
             task.PromptTokens       = result.PromptTokens;
@@ -388,18 +437,38 @@ Do not include any text outside the JSON array.";
                 agentRecord.TasksCompleted++;
                 agentRecord.Status = agent.IsEphemeral ? AgentStatus.Offline : AgentStatus.Idle;
             }
+            await _events.LogAsync(
+                task.Id,
+                task.AgentId,
+                TaskExecutionEventType.SpawnChildCompleted,
+                "Child task completed.",
+                new { result.TotalTokens, result.CostUSD, result.ModelUsed },
+                relatedTaskId: task.SpawnParentTaskId);
         }
         catch (OperationCanceledException)
         {
             task.Status = AgentTaskStatus.Cancelled;
             task.CompletedAt = DateTime.UtcNow;
             task.ErrorMessage ??= "Child task cancelled.";
+            await _events.LogAsync(
+                task.Id,
+                task.AgentId,
+                TaskExecutionEventType.TaskCancelled,
+                "Child task cancelled.",
+                relatedTaskId: task.SpawnParentTaskId);
         }
         catch (Exception ex)
         {
             task.Status       = AgentTaskStatus.Failed;
             task.ErrorMessage = ex.Message;
             task.CompletedAt  = DateTime.UtcNow;
+            await _events.LogAsync(
+                task.Id,
+                task.AgentId,
+                TaskExecutionEventType.TaskFailed,
+                "Child task failed.",
+                new { ex.Message },
+                relatedTaskId: task.SpawnParentTaskId);
         }
 
         await db.SaveChangesAsync();
@@ -510,7 +579,7 @@ Do not include any text outside the JSON array.";
 
         try
         {
-            var result = await _llm.ExecuteAsync(agent, task.Input ?? string.Empty, task.SystemPromptSnapshot ?? agent.SystemPrompt, cancellationToken);
+            var result = await _llm.ExecuteAsync(agent, task.Input ?? string.Empty, task.SystemPromptSnapshot ?? agent.SystemPrompt, cancellationToken, task.Id);
             task.Output             = result.Output;
             task.PromptTokens       = result.PromptTokens;
             task.CompletionTokens   = result.CompletionTokens;

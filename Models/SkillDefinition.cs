@@ -1,9 +1,20 @@
 namespace XpedeonAgentMissionControl.Models;
 
+public enum SkillCategory
+{
+    General,
+    Database,
+    Finance,
+    Integration,
+    Reporting,
+    Compliance
+}
+
 public class SkillDefinition
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public string Name { get; set; } = string.Empty;
+    public SkillCategory Category { get; set; } = SkillCategory.General;
     public string Description { get; set; } = string.Empty;
     public string PromptSnippet { get; set; } = string.Empty;
     public string AllowedMcpToolNamesJson { get; set; } = "[]";

@@ -203,38 +203,45 @@ else
             }
             else
             {
-                <div class="skill-pick-grid">
-                    @foreach (var skill in allSkills)
-                    {
-                        var isAssigned = assignedSkillIds.Contains(skill.Id);
-                        <div class="skill-pick-card @(isAssigned ? "skill-pick-card--selected" : "")"
-                             @onclick="() => ToggleSkill(skill.Id)">
-                            <div class="flex items-start gap-3">
-                                <div class="provider-icon provider-icon--custom">
-                                    <i class="bi bi-stars"></i>
-                                </div>
-                                <div style="flex:1;">
-                                    <div class="text-sm font-medium">@skill.Name</div>
-                                    <div class="text-xs text-muted mt-1">@skill.Description</div>
-                                    <div class="text-xs text-muted mt-2">
-                                        @if (skill.RequiresApproval)
+                @foreach (var skillGroup in SkillsByCategory(allSkills))
+                {
+                    <div class="mt-3">
+                        <div class="text-xs text-muted mb-2">@skillGroup.Key</div>
+                        <div class="skill-pick-grid">
+                            @foreach (var skill in skillGroup)
+                            {
+                                var isAssigned = assignedSkillIds.Contains(skill.Id);
+                                <div class="skill-pick-card @(isAssigned ? "skill-pick-card--selected" : "")"
+                                     @onclick="() => ToggleSkill(skill.Id)">
+                                    <div class="flex items-start gap-3">
+                                        <div class="provider-icon provider-icon--custom">
+                                            <i class="bi bi-stars"></i>
+                                        </div>
+                                        <div style="flex:1;">
+                                            <div class="text-sm font-medium">@skill.Name</div>
+                                            <div class="text-xs text-muted mt-1">@skill.Description</div>
+                                            <div class="text-xs text-muted mt-2">
+                                                <span class="tag">@skill.Category</span>
+                                                @if (skill.RequiresApproval)
+                                                {
+                                                    <span class="tag">Approval</span>
+                                                }
+                                                @if (skill.MaxToolCalls.HasValue)
+                                                {
+                                                    <span class="tag">Max @skill.MaxToolCalls tools</span>
+                                                }
+                                            </div>
+                                        </div>
+                                        @if (isAssigned)
                                         {
-                                            <span class="tag">Approval</span>
-                                        }
-                                        @if (skill.MaxToolCalls.HasValue)
-                                        {
-                                            <span class="tag">Max @skill.MaxToolCalls tools</span>
+                                            <i class="bi bi-check-circle-fill text-accent"></i>
                                         }
                                     </div>
                                 </div>
-                                @if (isAssigned)
-                                {
-                                    <i class="bi bi-check-circle-fill text-accent"></i>
-                                }
-                            </div>
+                            }
                         </div>
-                    }
-                </div>
+                    </div>
+                }
             }
         </div>
 
@@ -545,6 +552,12 @@ else
     {
         if (!assignedSkillIds.Remove(skillId)) assignedSkillIds.Add(skillId);
     }
+
+    private static IEnumerable<IGrouping<SkillCategory, SkillDefinition>> SkillsByCategory(IEnumerable<SkillDefinition> skills)
+        => skills
+            .OrderBy(s => s.Category)
+            .ThenBy(s => s.Name)
+            .GroupBy(s => s.Category);
 
     private void ApplySchedulePreset(string expression)
     {

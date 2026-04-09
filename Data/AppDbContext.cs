@@ -29,6 +29,7 @@ public class AppDbContext : DbContext
     public DbSet<AgentMemory> AgentMemories => Set<AgentMemory>();
     public DbSet<TaskFeedback> TaskFeedbacks => Set<TaskFeedback>();
     public DbSet<PromptHistory> PromptHistories => Set<PromptHistory>();
+    public DbSet<TaskExecutionEvent> TaskExecutionEvents => Set<TaskExecutionEvent>();
     public DbSet<AgentTemplate> AgentTemplates => Set<AgentTemplate>();
     public DbSet<AgentSchedule> AgentSchedules => Set<AgentSchedule>();
     public DbSet<EvaluationScenario> EvaluationScenarios => Set<EvaluationScenario>();
@@ -86,6 +87,8 @@ public class AppDbContext : DbContext
             e.Property(t => t.CostUSD).HasColumnType("decimal(18,6)");
             e.HasOne(t => t.Agent).WithMany(a => a.Tasks)
              .HasForeignKey(t => t.AgentId).OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(t => t.ExecutionEvents).WithOne(te => te.Task)
+             .HasForeignKey(te => te.TaskId).OnDelete(DeleteBehavior.Cascade);
         });
 
         // LogEntry
@@ -168,6 +171,13 @@ public class AppDbContext : DbContext
             e.HasKey(p => p.Id);
         });
 
+        // TaskExecutionEvent
+        modelBuilder.Entity<TaskExecutionEvent>(e =>
+        {
+            e.HasKey(te => te.Id);
+            e.HasIndex(te => new { te.TaskId, te.CreatedAt });
+        });
+
         // AgentTemplate
         modelBuilder.Entity<AgentTemplate>(e =>
         {
@@ -243,6 +253,7 @@ public class AppDbContext : DbContext
             {
                 Id = "skill-001",
                 Name = "DB Schema Lookup",
+                Category = SkillCategory.Database,
                 Description = "Retrieve table definitions, indexes, and stored procedure shapes through approved MCP database tools.",
                 PromptSnippet = "Use this skill for database metadata requests. Prefer exact object names and return concise structured schema summaries.",
                 AllowedMcpToolNamesJson = "[\"xpedeon-database-tool\",\"xpedeon-database-legacy-tool\"]",
@@ -257,6 +268,7 @@ public class AppDbContext : DbContext
             {
                 Id = "skill-002",
                 Name = "Invoice Validation",
+                Category = SkillCategory.Finance,
                 Description = "Validate invoice records, detect anomalies, and summarize issues before posting or approval.",
                 PromptSnippet = "Use this skill when validating invoices. Highlight missing fields, duplicates, suspicious amounts, and approval blockers before giving a recommendation.",
                 AllowedMcpToolNamesJson = "[]",
@@ -271,6 +283,7 @@ public class AppDbContext : DbContext
             {
                 Id = "skill-003",
                 Name = "ERP Sync Audit",
+                Category = SkillCategory.Integration,
                 Description = "Audit ERP sync tasks, compare system states, and call out mismatches with follow-up actions.",
                 PromptSnippet = "Use this skill for reconciliation and sync audits. Focus on mismatches, source-of-truth decisions, and next-step actions.",
                 AllowedMcpToolNamesJson = "[]",
@@ -284,6 +297,7 @@ public class AppDbContext : DbContext
             {
                 Id = "skill-004",
                 Name = "Cost Analysis",
+                Category = SkillCategory.Reporting,
                 Description = "Analyze budget variance, burn rates, and overspend patterns with actionable recommendations.",
                 PromptSnippet = "Use this skill for project cost analysis. Summarize overspend drivers, likely risk areas, and recommended interventions in a business-friendly format.",
                 AllowedMcpToolNamesJson = "[]",
@@ -419,6 +433,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<AgentMemory>().ToTable("AGENT_MEMORIES");
         modelBuilder.Entity<TaskFeedback>().ToTable("TASK_FEEDBACKS");
         modelBuilder.Entity<PromptHistory>().ToTable("PROMPT_HISTORIES");
+        modelBuilder.Entity<TaskExecutionEvent>().ToTable("TASK_EXECUTION_EVENTS");
         modelBuilder.Entity<AgentTemplate>().ToTable("AGENT_TEMPLATES");
         modelBuilder.Entity<AgentSchedule>().ToTable("AGENT_SCHEDULES");
         modelBuilder.Entity<EvaluationScenario>().ToTable("EVALUATION_SCENARIOS");
