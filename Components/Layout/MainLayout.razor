@@ -1,5 +1,10 @@
 @rendermode InteractiveServer
 @inherits LayoutComponentBase
+@implements IDisposable
+@inject RealtimeService RealtimeService
+@inject NavigationManager Nav
+@using XpedeonAgentMissionControl.Models
+@using XpedeonAgentMissionControl.Services
 
 <div class="app-shell @(_sidebarCollapsed ? "sidebar-collapsed" : "") @(_sidebarOpen ? "sidebar-mobile-open" : "")">
     <Sidebar IsOpen="_sidebarOpen" IsCollapsed="_sidebarCollapsed" OnToggleCollapse="ToggleDesktopSidebar" OnNavigate="HandleNavigation" />
@@ -19,6 +24,25 @@
     </div>
 </div>
 
+@if (_toasts.Count > 0)
+{
+    <div class="toast-tray" aria-live="polite">
+        @foreach (var toast in _toasts.ToList())
+        {
+            <div class="toast toast--@toast.CssModifier" @onclick="() => NavigateToTask(toast)" role="alert">
+                <i class="bi @toast.Icon toast__icon"></i>
+                <div class="toast__body">
+                    <div class="toast__agent">@toast.AgentName</div>
+                    <div class="toast__task">@toast.TaskName</div>
+                </div>
+                <button class="toast__close" @onclick:stopPropagation="true" @onclick="() => DismissToast(toast)">
+                    <i class="bi bi-x"></i>
+                </button>
+            </div>
+        }
+    </div>
+}
+
 <div id="blazor-error-ui">
     An unhandled error has occurred.
     <a href="" class="reload">Reload</a>
@@ -30,9 +54,71 @@
     private bool _sidebarCollapsed;
 
     private void ToggleSidebar() => _sidebarOpen = !_sidebarOpen;
-
     private void ToggleDesktopSidebar() => _sidebarCollapsed = !_sidebarCollapsed;
-
     private void CloseSidebar()  => _sidebarOpen = false;
     private void HandleNavigation() => _sidebarOpen = false;
+
+    // ── Toast notifications ──────────────────────────────────────────────────
+
+    private sealed class ToastEntry
+    {
+        public string TaskId    { get; init; } = "";
+        public string AgentId   { get; init; } = "";
+        public string AgentName { get; init; } = "";
+        public string TaskName  { get; init; } = "";
+        public AgentTaskStatus Status { get; init; }
+        public string CssModifier => Status switch
+        {
+            AgentTaskStatus.Completed => "success",
+            AgentTaskStatus.Failed    => "error",
+            _                         => "warning"
+        };
+        public string Icon => Status switch
+        {
+            AgentTaskStatus.Completed => "bi-check-circle-fill",
+            AgentTaskStatus.Failed    => "bi-x-circle-fill",
+            _                         => "bi-slash-circle-fill"
+        };
+    }
+
+    private readonly List<ToastEntry> _toasts = new();
+
+    protected override void OnInitialized()
+        => RealtimeService.TaskCompleted += HandleTaskCompleted;
+
+    public void Dispose()
+        => RealtimeService.TaskCompleted -= HandleTaskCompleted;
+
+    private void HandleTaskCompleted(TaskCompletedNotification n)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            var toast = new ToastEntry
+            {
+                TaskId    = n.TaskId,
+                AgentId   = n.AgentId,
+                AgentName = n.AgentName,
+                TaskName  = n.TaskName,
+                Status    = n.Status
+            };
+            _toasts.Add(toast);
+            StateHasChanged();
+
+            await Task.Delay(5000);
+
+            _toasts.Remove(toast);
+            StateHasChanged();
+        });
+    }
+
+    private void DismissToast(ToastEntry toast)
+    {
+        _toasts.Remove(toast);
+    }
+
+    private void NavigateToTask(ToastEntry toast)
+    {
+        DismissToast(toast);
+        Nav.NavigateTo($"/agents/{toast.AgentId}");
+    }
 }

@@ -23,12 +23,15 @@ public class MCPServer
     public string? OAuthScope { get; set; }
     [NotMapped]
     public DateTime? AuthTokenExpiresAtUtc { get; set; }
+    public bool IsManaged { get; set; } = false;
+    public string? ExternalSkillPackageId { get; set; }
     public bool IsGlobal { get; set; } = false;
     public bool IsEnabled { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     // Navigation
     public List<AgentMCPServer> AgentMCPServers { get; set; } = new();
+    public ExternalSkillPackage? ExternalSkillPackage { get; set; }
 }
 
 public class AgentMCPServer

@@ -93,6 +93,19 @@ public class LLMExecutionService
         var traceParts = new List<string>();
         LLMResult? latestResult = null;
 
+        await LogEventAsync(
+            taskId,
+            agent.Id,
+            TaskExecutionEventType.PromptBuilt,
+            $"Effective system prompt built ({effectiveSystemPrompt.Length} chars).",
+            new
+            {
+                Preview = effectiveSystemPrompt.Length > 800
+                    ? effectiveSystemPrompt[..800] + "…"
+                    : effectiveSystemPrompt,
+                FullLength = effectiveSystemPrompt.Length
+            });
+
         if (activeSkills.Any())
         {
             traceParts.Add($"Active skills: {string.Join(", ", activeSkills.Select(s => s.SkillDefinition?.Name).Where(n => !string.IsNullOrWhiteSpace(n)))}");

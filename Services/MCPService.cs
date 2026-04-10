@@ -71,7 +71,7 @@ public class MCPDeviceCodePollResult
     public DateTimeOffset? ExpiresAtUtc { get; set; }
 }
 
-public class MCPService
+public class MCPService : IMcpConnectionProbe
 {
     private const string ProtocolVersion = "2025-03-26";
     private const string AzureCliClientId = "04b07795-8ddb-461a-bbee-02f9e1bf7b46";
@@ -913,22 +913,21 @@ public class MCPService
 
         public static async Task<StdioMCPSession> CreateAsync(MCPServer server, CancellationToken cancellationToken)
         {
-            var tokens = TokenizeCommand(server.Endpoint);
-            if (tokens.Count == 0)
+            var command = server.Endpoint?.Trim();
+            if (string.IsNullOrWhiteSpace(command))
                 throw new InvalidOperationException("A stdio MCP server requires a command line in Endpoint.");
 
+            // Run via cmd.exe so PATH, .cmd extensions, and shell aliases all resolve correctly.
             var psi = new ProcessStartInfo
             {
-                FileName = tokens[0],
+                FileName = "cmd.exe",
+                Arguments = $"/C \"{command.Replace("\"", "\\\"")}\"",
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
-
-            for (var i = 1; i < tokens.Count; i++)
-                psi.ArgumentList.Add(tokens[i]);
 
             var process = Process.Start(psi)
                 ?? throw new InvalidOperationException("Failed to start stdio MCP process.");

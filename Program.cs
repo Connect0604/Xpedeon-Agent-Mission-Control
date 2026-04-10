@@ -54,6 +54,8 @@ builder.Services.AddScoped<SelfLearningService>();
 builder.Services.AddScoped<ScheduleService>();
 builder.Services.AddScoped<DynamicSpawnService>();
 builder.Services.AddScoped<MCPService>();
+builder.Services.AddScoped<IMcpConnectionProbe>(sp => sp.GetRequiredService<MCPService>());
+builder.Services.AddScoped<ExternalSkillPackageService>();
 builder.Services.AddScoped<HermesOpenClawExecutionService>();
 builder.Services.AddHostedService<AgentSchedulerService>();
 builder.Services.AddHostedService<HermesOpenClawSyncService>();

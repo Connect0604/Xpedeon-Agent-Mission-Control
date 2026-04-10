@@ -12,6 +12,10 @@ public class RealtimeService
 {
     private readonly IHubContext<AgentHub> _hub;
     public event Action? RefreshRequested;
+    public event Action<TaskCompletedNotification>? TaskCompleted;
+
+    public void NotifyTaskCompleted(TaskCompletedNotification notification)
+        => TaskCompleted?.Invoke(notification);
 
     public RealtimeService(IHubContext<AgentHub> hub) => _hub = hub;
 
@@ -45,3 +49,10 @@ public class RealtimeService
         await _hub.Clients.All.SendAsync("AgentCreated", agentId);
     }
 }
+
+public sealed record TaskCompletedNotification(
+    string TaskId,
+    string AgentId,
+    string AgentName,
+    string TaskName,
+    AgentTaskStatus Status);
