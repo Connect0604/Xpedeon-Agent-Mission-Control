@@ -36,6 +36,7 @@ public class AppDbContext : DbContext
     public DbSet<AgentSchedule> AgentSchedules => Set<AgentSchedule>();
     public DbSet<EvaluationScenario> EvaluationScenarios => Set<EvaluationScenario>();
     public DbSet<EvaluationRun> EvaluationRuns => Set<EvaluationRun>();
+    public DbSet<LocalCapability> LocalCapabilities => Set<LocalCapability>();
     public DbSet<AgentWorkflow> Workflows => Set<AgentWorkflow>();
     public DbSet<AgentWorkflowStep> WorkflowSteps => Set<AgentWorkflowStep>();
     public DbSet<WorkflowRun> WorkflowRuns => Set<WorkflowRun>();
@@ -55,6 +56,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Agent>(e =>
         {
             e.HasKey(a => a.Id);
+            e.Property(a => a.LocalAutomationEnabled);
+            e.Property(a => a.AllowPowerShellScripts);
+            e.Property(a => a.AllowDestructiveActions);
+            e.Property(a => a.LocalAutomationApprovalMode);
+            e.Property(a => a.AllowedLocalRootsJson);
             e.Property(a => a.CpuHistory).HasConversion(
                 new ValueConverter<List<double>, string>(
                     v => string.Join(',', v),
@@ -86,7 +92,18 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<AgentTask>(e =>
         {
             e.HasKey(t => t.Id);
+            e.Property(t => t.LocalCapabilityId);
+            e.Property(t => t.LocalCapabilityDraftJson);
+            e.Property(t => t.LocalCapabilityExecutionJson);
+            e.Property(t => t.LocalActionPlanJson);
+            e.Property(t => t.LocalActionResultJson);
+            e.Property(t => t.TouchedPathsJson);
+            e.Property(t => t.RequiresElevatedApproval);
             e.Property(t => t.CostUSD).HasColumnType("decimal(18,6)");
+            e.HasOne<LocalCapability>()
+             .WithMany()
+             .HasForeignKey(t => t.LocalCapabilityId)
+             .OnDelete(DeleteBehavior.SetNull);
             e.HasOne(t => t.Agent).WithMany(a => a.Tasks)
              .HasForeignKey(t => t.AgentId).OnDelete(DeleteBehavior.Cascade);
             e.HasMany(t => t.ExecutionEvents).WithOne(te => te.Task)
@@ -235,6 +252,19 @@ public class AppDbContext : DbContext
             e.Property(r => r.CostUSD).HasColumnType("decimal(18,6)");
             e.HasOne(r => r.Scenario).WithMany(s => s.Runs)
              .HasForeignKey(r => r.EvaluationScenarioId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<LocalCapability>(e =>
+        {
+            e.HasKey(c => c.Id);
+            e.Property(c => c.Id).HasMaxLength(64);
+            e.Property(c => c.Name).IsRequired().HasMaxLength(255);
+            e.Property(c => c.DisplayName).IsRequired().HasMaxLength(255);
+            e.Property(c => c.Description).IsRequired();
+            e.Property(c => c.HandlerKey).HasMaxLength(255);
+            e.Property(c => c.ScriptPath).HasMaxLength(1024);
+            e.Property(c => c.InputSchemaJson).IsRequired();
+            e.Property(c => c.OutputSchemaJson).IsRequired();
         });
 
         modelBuilder.Entity<AgentWorkflow>(e =>
@@ -469,6 +499,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<AgentSchedule>().ToTable("AGENT_SCHEDULES");
         modelBuilder.Entity<EvaluationScenario>().ToTable("EVALUATION_SCENARIOS");
         modelBuilder.Entity<EvaluationRun>().ToTable("EVALUATION_RUNS");
+        modelBuilder.Entity<LocalCapability>().ToTable("LOCAL_CAPABILITIES");
         modelBuilder.Entity<AgentWorkflow>().ToTable("AGENT_WORKFLOWS");
         modelBuilder.Entity<AgentWorkflowStep>().ToTable("AGENT_WORKFLOW_STEPS");
         modelBuilder.Entity<WorkflowRun>().ToTable("WORKFLOW_RUNS");

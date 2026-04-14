@@ -53,6 +53,11 @@ public class AgentService
         agent.LastSeen = DateTime.UtcNow;
         agent.Status = AgentStatus.Idle;
 
+        if (agent.Schedule != null)
+        {
+            agent.Schedule.AgentId = agent.Id;
+        }
+
         // Attach MCP servers
         if (mcpServerIds?.Any() == true)
         {

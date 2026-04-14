@@ -52,6 +52,14 @@ public class AgentTask
     public string? ExternalResultJson { get; set; }
     public string? ExternalError { get; set; }
 
+    public string? LocalCapabilityId { get; set; }
+    public string? LocalCapabilityDraftJson { get; set; }
+    public string? LocalCapabilityExecutionJson { get; set; }
+    public string? LocalActionPlanJson { get; set; }
+    public string? LocalActionResultJson { get; set; }
+    public string? TouchedPathsJson { get; set; }
+    public bool RequiresElevatedApproval { get; set; }
+
     // Progress
     public DateTime CreatedAt { get; set; }
     public DateTime? StartedAt { get; set; }

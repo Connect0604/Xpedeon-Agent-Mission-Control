@@ -8,6 +8,8 @@ public enum TriggerType { Manual, Scheduled, Event, Swarm }
 
 public enum ExecutionBackend { Local, HermesOpenClaw }
 
+public enum LocalAutomationApprovalMode { Restricted, ApproveRiskyOnly, FullControl }
+
 public class Agent
 {
     public string Id { get; set; } = string.Empty;
@@ -68,6 +70,11 @@ public class Agent
     public double ConfidenceThreshold { get; set; } = 0.8;
 
     // Dynamic Spawning — configuration (set by user)
+    public bool LocalAutomationEnabled { get; set; } = false;
+    public bool AllowPowerShellScripts { get; set; } = false;
+    public bool AllowDestructiveActions { get; set; } = false;
+    public LocalAutomationApprovalMode LocalAutomationApprovalMode { get; set; } = LocalAutomationApprovalMode.ApproveRiskyOnly;
+    public string? AllowedLocalRootsJson { get; set; }
     public bool SpawnEnabled { get; set; } = false;
     public AgentSpawnMode SpawnMode { get; set; } = AgentSpawnMode.RuleBased;
     public AgentSpawnTriggerType SpawnTriggerType { get; set; } = AgentSpawnTriggerType.SplitByNewline;

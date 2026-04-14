@@ -1,0 +1,425 @@
+@page "/outputs"
+@rendermode InteractiveServer
+@implements IDisposable
+@inject AgentService AgentService
+@inject TaskService TaskService
+@inject RealtimeService RealtimeService
+@inject NavigationManager Nav
+
+<PageTitle>Outputs - Xpedeon AMC</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Agent Outputs</h1>
+        <p class="page-subtitle">Select an agent first, then scan its output history in one place without dropping into the task workspace.</p>
+    </div>
+</div>
+
+<div class="filter-bar">
+    <div class="search-box">
+        <i class="bi bi-search"></i>
+        <input type="text" placeholder="Search agents..." @bind="searchQuery" @bind:event="oninput" @bind:after="ApplyAgentFilter" />
+    </div>
+
+    @foreach (var status in AllStatuses)
+    {
+        <button class="chip @(statusFilter == status ? "on" : "")" @onclick="() => ToggleStatus(status)">
+            <span class="dot @status.ToString().ToLower() sm"></span>
+            @status
+        </button>
+    }
+
+    <select class="form-input outputs-filter" @bind="typeFilter" @bind:after="ApplyAgentFilter">
+        <option value="">All types</option>
+        @foreach (var type in AllTypes)
+        {
+            <option value="@type">@type</option>
+        }
+    </select>
+    <label class="outputs-filter outputs-filter--toggle">
+        <input type="checkbox" @bind="showFailuresOnly" @bind:after="ApplyAgentFilter" />
+        <span>Failures only</span>
+    </label>
+</div>
+
+@if (!filteredAgents.Any())
+{
+    <div class="card card-pad empty-state">
+        <div class="empty-icon"><i class="bi bi-chat-square-text"></i></div>
+        <div class="empty-title">No agents with outputs found</div>
+        <div class="empty-desc">Try a different filter, or run an agent task to generate output history.</div>
+    </div>
+}
+else
+{
+    <div class="card card-pad">
+        <div class="outputs-section-head">
+            <div>
+                <div class="section-head"><i class="bi bi-collection"></i> Agents</div>
+                <div class="text-xs text-muted mt-1">Choose one agent to load all of its saved outputs immediately.</div>
+            </div>
+            <span class="text-xs text-muted">@filteredAgents.Count agent(s)</span>
+        </div>
+
+        <div class="outputs-agent-grid">
+            @foreach (var item in filteredAgents)
+            {
+                <button type="button"
+                        class="outputs-agent-card @(selectedAgent?.Agent.Id == item.Agent.Id ? "outputs-agent-card--selected" : "")"
+                        @onclick="() => SelectAgent(item)">
+                    <div class="outputs-agent-card__top">
+                        <div>
+                            <div class="outputs-agent-card__name">@item.Agent.Name</div>
+                            <div class="outputs-agent-card__host">@item.Agent.HostMachine</div>
+                        </div>
+                        <StatusBadge Status="@item.Agent.Status" />
+                    </div>
+                    <div class="outputs-agent-card__meta">
+                        <TypeBadge Type="@item.Agent.Type" />
+                        <span class="outputs-meta-pill">@item.OutputCount outputs</span>
+                        @if (item.FailureCount > 0)
+                        {
+                            <span class="outputs-meta-pill outputs-meta-pill--danger">@item.FailureCount failure@(item.FailureCount == 1 ? "" : "s")</span>
+                        }
+                    </div>
+                    <div class="outputs-agent-card__preview">@PreviewFor(item.LatestTask)</div>
+                    <div class="outputs-agent-card__foot">
+                        <span>Latest: @RelTime(item.LatestTask.CompletedAt ?? item.LatestTask.CreatedAt)</span>
+                        @if (!string.IsNullOrWhiteSpace(item.LatestTask.ModelUsed))
+                        {
+                            <span class="font-mono">@item.LatestTask.ModelUsed</span>
+                        }
+                    </div>
+                </button>
+            }
+        </div>
+    </div>
+
+    @if (selectedAgent != null)
+    {
+        <div class="outputs-selected-head">
+            <div>
+                <div class="outputs-selected-title">
+                    <h2>@selectedAgent.Agent.Name</h2>
+                    <StatusBadge Status="@selectedAgent.Agent.Status" />
+                    <TypeBadge Type="@selectedAgent.Agent.Type" />
+                </div>
+                <p class="text-muted text-sm">Showing @selectedOutputs.Count saved output@(selectedOutputs.Count == 1 ? "" : "s") for the selected agent.</p>
+            </div>
+            <div class="page-actions">
+                <button class="btn btn-ghost" @onclick='() => Nav.NavigateTo($"/agents/{selectedAgent.Agent.Id}")'>
+                    <i class="bi bi-robot"></i> Open Agent
+                </button>
+                @if (selectedTask != null && selectedTask.Status != AgentTaskStatus.Running && selectedTask.Status != AgentTaskStatus.PendingApproval)
+                {
+                    <button class="btn btn-primary" @onclick="() => ReplayTask(selectedTask)" disabled="@isReplaying">
+                        <i class="bi bi-arrow-repeat"></i> @(isReplaying ? "Replaying..." : "Replay Selected Output")
+                    </button>
+                }
+            </div>
+        </div>
+
+        @if (!selectedOutputs.Any())
+        {
+            <div class="card card-pad empty-state">
+                <div class="empty-icon"><i class="bi bi-inbox"></i></div>
+                <div class="empty-title">No outputs for this agent yet</div>
+                <div class="empty-desc">Run the agent once and its output history will appear here.</div>
+            </div>
+        }
+        else
+        {
+            <div class="outputs-stage">
+                <div class="outputs-history-grid">
+                    @foreach (var task in selectedOutputs)
+                    {
+                        <button type="button"
+                                class="outputs-history-card @(selectedTask?.Id == task.Id ? "outputs-history-card--selected" : "")"
+                                @onclick="() => SelectTask(task)">
+                            <div class="outputs-history-card__header">
+                                <TaskStatusBadge Status="@task.Status" />
+                                <span class="text-xs text-muted ml-auto">@RelTime(task.CompletedAt ?? task.CreatedAt)</span>
+                            </div>
+                            <div class="outputs-history-card__name">@task.Name</div>
+                            <div class="outputs-history-card__preview">@PreviewFor(task)</div>
+                            <div class="outputs-history-card__meta">
+                                @if (task.TotalTokens > 0)
+                                {
+                                    <span><i class="bi bi-hash"></i> @task.TotalTokens.ToString("N0")</span>
+                                }
+                                @if (task.CostUSD > 0)
+                                {
+                                    <span><i class="bi bi-currency-dollar"></i> $@task.CostUSD.ToString("F5")</span>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(task.ModelUsed))
+                                {
+                                    <span class="font-mono">@task.ModelUsed</span>
+                                }
+                            </div>
+                        </button>
+                    }
+                </div>
+
+                <div class="card card-pad outputs-detail-panel">
+                    @if (selectedTask != null)
+                    {
+                        <div class="outputs-detail-head">
+                            <div>
+                                <h3 class="section-title">@selectedTask.Name</h3>
+                                <p class="text-muted text-sm">
+                                    @selectedTask.AgentName
+                                    <span class="mx-1">·</span>
+                                    @(selectedTask.CompletedAt?.ToLocalTime().ToString("dd MMM yyyy HH:mm:ss") ?? "In progress")
+                                </p>
+                            </div>
+                            <button class="btn btn-ghost btn-sm" @onclick='() => Nav.NavigateTo("/tasks")'>
+                                <i class="bi bi-list-task"></i> Tasks
+                            </button>
+                        </div>
+
+                        <div class="token-stats">
+                            <div class="token-stat">
+                                <span class="text-muted text-xs">Status</span>
+                                <span>@selectedTask.Status</span>
+                            </div>
+                            <div class="token-stat">
+                                <span class="text-muted text-xs">Model</span>
+                                <span class="font-mono">@(selectedTask.ModelUsed ?? selectedTask.ProviderSnapshotModel ?? "Unknown")</span>
+                            </div>
+                            <div class="token-stat">
+                                <span class="text-muted text-xs">Tokens</span>
+                                <span class="font-mono">@selectedTask.TotalTokens.ToString("N0")</span>
+                            </div>
+                            <div class="token-stat">
+                                <span class="text-muted text-xs">Cost</span>
+                                <span class="font-mono">$@selectedTask.CostUSD.ToString("F6")</span>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(selectedTask.Input))
+                        {
+                            <div class="form-group mt-4">
+                                <label class="form-label text-xs text-muted">Input</label>
+                                <div class="output-box">@selectedTask.Input</div>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(selectedTask.Output))
+                        {
+                            <div class="form-group">
+                                <label class="form-label text-xs text-muted">Output</label>
+                                <div class="output-box output-box--success">@selectedTask.Output</div>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(selectedTask.ErrorMessage))
+                        {
+                            <div class="form-group">
+                                <label class="form-label text-xs text-muted">Error</label>
+                                <div class="output-box output-box--error">@selectedTask.ErrorMessage</div>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(selectedTask.ExecutionTrace))
+                        {
+                            <div class="form-group">
+                                <label class="form-label text-xs text-muted">Execution Trace</label>
+                                <div class="output-box font-mono text-xs">@selectedTask.ExecutionTrace</div>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="task-detail-empty">
+                            <div class="empty-icon"><i class="bi bi-layout-sidebar-inset"></i></div>
+                            <div class="empty-title">Select an Output</div>
+                            <div class="empty-desc">Pick one of the output cards to inspect its full text here.</div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
+}
+
+@code {
+    private sealed record OutputAgentVm(Agent Agent, AgentTask LatestTask, int OutputCount, int FailureCount);
+
+    private List<Agent> allAgents = new();
+    private List<AgentTask> recentOutputs = new();
+    private List<OutputAgentVm> agentOptions = new();
+    private List<OutputAgentVm> filteredAgents = new();
+    private List<AgentTask> selectedOutputs = new();
+    private OutputAgentVm? selectedAgent;
+    private AgentTask? selectedTask;
+    private string searchQuery = "";
+    private string typeFilter = "";
+    private bool showFailuresOnly;
+    private bool isReplaying;
+    private AgentStatus? statusFilter;
+    private Timer? _timer;
+
+    private static readonly AgentStatus[] AllStatuses = Enum.GetValues<AgentStatus>();
+
+    private IEnumerable<string> AllTypes => allAgents
+        .Select(a => a.Type.ToString())
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(x => x);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        RealtimeService.RefreshRequested += HandleRealtimeChange;
+        _timer = new Timer(async _ =>
+        {
+            await LoadAsync();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+    }
+
+    private async Task LoadAsync()
+    {
+        allAgents = await AgentService.GetAllAsync();
+        recentOutputs = await TaskService.GetRecentOutputsAsync(500);
+        agentOptions = BuildAgentOptions(allAgents, recentOutputs);
+        ApplyAgentFilter();
+
+        if (selectedAgent == null || filteredAgents.All(a => a.Agent.Id != selectedAgent.Agent.Id))
+        {
+            var nextAgent = filteredAgents.FirstOrDefault();
+            if (nextAgent != null)
+                await SelectAgent(nextAgent);
+            else
+            {
+                selectedAgent = null;
+                selectedTask = null;
+                selectedOutputs = new List<AgentTask>();
+            }
+        }
+        else
+        {
+            selectedAgent = filteredAgents.First(a => a.Agent.Id == selectedAgent.Agent.Id);
+            await LoadSelectedAgentOutputsAsync(preserveSelection: true);
+        }
+    }
+
+    private async Task SelectAgent(OutputAgentVm agent)
+    {
+        selectedAgent = agent;
+        await LoadSelectedAgentOutputsAsync();
+    }
+
+    private async Task LoadSelectedAgentOutputsAsync(bool preserveSelection = false)
+    {
+        if (selectedAgent == null)
+            return;
+
+        selectedOutputs = await TaskService.GetOutputsForAgentAsync(selectedAgent.Agent.Id, 200);
+
+        if (preserveSelection && selectedTask != null)
+            selectedTask = selectedOutputs.FirstOrDefault(t => t.Id == selectedTask.Id) ?? selectedOutputs.FirstOrDefault();
+        else
+            selectedTask = selectedOutputs.FirstOrDefault();
+    }
+
+    private void ApplyAgentFilter()
+    {
+        filteredAgents = agentOptions
+            .Where(a => statusFilter == null || a.Agent.Status == statusFilter)
+            .Where(a => string.IsNullOrWhiteSpace(typeFilter) || a.Agent.Type.ToString() == typeFilter)
+            .Where(a => !showFailuresOnly || a.FailureCount > 0)
+            .Where(a => string.IsNullOrWhiteSpace(searchQuery)
+                     || a.Agent.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+                     || a.Agent.HostMachine.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+                     || a.Agent.CurrentTask.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+                     || a.LatestTask.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+                     || (!string.IsNullOrWhiteSpace(a.LatestTask.Output) && a.LatestTask.Output.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+                     || (!string.IsNullOrWhiteSpace(a.LatestTask.ErrorMessage) && a.LatestTask.ErrorMessage.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(a => a.FailureCount > 0)
+            .ThenByDescending(a => a.LatestTask.CompletedAt ?? a.LatestTask.CreatedAt)
+            .ToList();
+    }
+
+    private void ToggleStatus(AgentStatus status)
+    {
+        statusFilter = statusFilter == status ? null : status;
+        ApplyAgentFilter();
+    }
+
+    private void SelectTask(AgentTask task) => selectedTask = task;
+
+    private async Task ReplayTask(AgentTask task)
+    {
+        isReplaying = true;
+        try
+        {
+            var replayedTask = await TaskService.ReplayTaskAsync(task.Id);
+            await LoadAsync();
+            if (selectedAgent != null)
+            {
+                selectedTask = selectedOutputs.FirstOrDefault(t => t.Id == replayedTask.Id) ?? replayedTask;
+            }
+        }
+        finally
+        {
+            isReplaying = false;
+        }
+    }
+
+    private void HandleRealtimeChange()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        });
+    }
+
+    private static List<OutputAgentVm> BuildAgentOptions(IEnumerable<Agent> agents, IEnumerable<AgentTask> outputs)
+    {
+        var groupedOutputs = outputs
+            .GroupBy(t => t.AgentId)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(t => t.CompletedAt ?? t.CreatedAt).ToList());
+
+        return agents
+            .Where(a => groupedOutputs.ContainsKey(a.Id))
+            .Select(a =>
+            {
+                var tasks = groupedOutputs[a.Id];
+                return new OutputAgentVm(
+                    a,
+                    tasks.First(),
+                    tasks.Count,
+                    tasks.Count(t => t.Status == AgentTaskStatus.Failed || t.Status == AgentTaskStatus.Cancelled));
+            })
+            .ToList();
+    }
+
+    private static string PreviewFor(AgentTask task)
+    {
+        var text = !string.IsNullOrWhiteSpace(task.Output) ? task.Output : task.ErrorMessage ?? "";
+        if (string.IsNullOrWhiteSpace(text))
+            return "No output captured.";
+
+        text = System.Text.RegularExpressions.Regex.Replace(text, "<[^>]+>", " ");
+        text = text.Replace("\r", " ").Replace("\n", " ").Trim();
+        text = text.Replace("###", " ").Replace("**", "").Replace("__", "");
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ").Trim();
+        return text.Length > 170 ? text[..170].TrimEnd() + "..." : text;
+    }
+
+    private static string RelTime(DateTime dt)
+    {
+        var diff = DateTime.UtcNow - dt;
+        return diff.TotalSeconds < 60 ? "just now"
+             : diff.TotalMinutes < 60 ? $"{(int)diff.TotalMinutes}m ago"
+             : diff.TotalHours < 24 ? $"{(int)diff.TotalHours}h ago"
+             : $"{(int)diff.TotalDays}d ago";
+    }
+
+    public void Dispose()
+    {
+        RealtimeService.RefreshRequested -= HandleRealtimeChange;
+        _timer?.Dispose();
+    }
+}

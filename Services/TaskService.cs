@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using System.Text;
 using System.Text.Json;
 using XpedeonAgentMissionControl.Data;
@@ -13,6 +14,8 @@ public class TaskService
     private readonly LLMExecutionService _llm;
     private readonly HermesOpenClawExecutionService _hermes;
     private readonly DynamicSpawnService _spawn;
+    private readonly LocalAutomationOrchestrator _localAutomation;
+    private readonly LocalAutomationResponseFormatter _localAutomationFormatter;
     private readonly RealtimeService _realtime;
     private readonly TaskExecutionEventService _events;
     private static readonly ConcurrentDictionary<string, CancellationTokenSource> TaskCancellation = new();
@@ -22,6 +25,8 @@ public class TaskService
         LLMExecutionService llm,
         HermesOpenClawExecutionService hermes,
         DynamicSpawnService spawn,
+        LocalAutomationOrchestrator localAutomation,
+        LocalAutomationResponseFormatter localAutomationFormatter,
         RealtimeService realtime,
         TaskExecutionEventService events)
     {
@@ -29,6 +34,8 @@ public class TaskService
         _llm = llm;
         _hermes = hermes;
         _spawn = spawn;
+        _localAutomation = localAutomation;
+        _localAutomationFormatter = localAutomationFormatter;
         _realtime = realtime;
         _events = events;
     }
@@ -52,11 +59,67 @@ public class TaskService
             .ToListAsync();
     }
 
+    public async Task<List<AgentTask>> GetRecentOutputsAsync(int count = 200)
+    {
+        await using var db = _factory.CreateDbContext();
+        return await db.Tasks
+            .Where(HasOutputOrErrorExpression())
+            .OrderByDescending(t => t.CompletedAt ?? t.CreatedAt)
+            .ThenByDescending(t => t.CreatedAt)
+            .Take(count)
+            .ToListAsync();
+    }
+
+    public async Task<List<AgentTask>> GetLatestOutputPerAgentAsync(int count = 200)
+    {
+        await using var db = _factory.CreateDbContext();
+        var outputTasks = await db.Tasks
+            .Where(HasOutputOrErrorExpression())
+            .OrderByDescending(t => t.CompletedAt ?? t.CreatedAt)
+            .ThenByDescending(t => t.CreatedAt)
+            .ToListAsync();
+
+        return outputTasks
+            .GroupBy(t => t.AgentId)
+            .Select(g => g.First())
+            .Take(count)
+            .ToList();
+    }
+
+    public async Task<List<AgentTask>> GetRecentFailedOutputsAsync(int count = 200)
+    {
+        await using var db = _factory.CreateDbContext();
+        return await db.Tasks
+            .Where(t =>
+                t.Status == AgentTaskStatus.Failed ||
+                t.Status == AgentTaskStatus.Cancelled)
+            .Where(HasOutputOrErrorExpression())
+            .OrderByDescending(t => t.CompletedAt ?? t.CreatedAt)
+            .ThenByDescending(t => t.CreatedAt)
+            .Take(count)
+            .ToListAsync();
+    }
+
+    public async Task<List<AgentTask>> GetOutputsForAgentAsync(string agentId, int count = 200)
+    {
+        await using var db = _factory.CreateDbContext();
+        return await db.Tasks
+            .Where(t => t.AgentId == agentId)
+            .Where(HasOutputOrErrorExpression())
+            .OrderByDescending(t => t.CompletedAt ?? t.CreatedAt)
+            .ThenByDescending(t => t.CreatedAt)
+            .Take(count)
+            .ToListAsync();
+    }
+
     public async Task<AgentTask?> GetByIdAsync(string id)
     {
         await using var db = _factory.CreateDbContext();
         return await db.Tasks.FirstOrDefaultAsync(t => t.Id == id);
     }
+
+    private static System.Linq.Expressions.Expression<Func<AgentTask, bool>> HasOutputOrErrorExpression()
+        => t => (t.Output != null && t.Output != "") || (t.ErrorMessage != null && t.ErrorMessage != "");
 
     public async Task<AgentTask> CreateAndRunAsync(string agentId, string taskName, string input,
         TaskPriority priority = TaskPriority.Medium, TriggerSource trigger = TriggerSource.Manual)
@@ -259,7 +322,7 @@ public class TaskService
                 else if (executionAgent.SpawnEnabled)
                     await _spawn.ExecuteWithSpawningAsync(task.Id, executionAgent, cts.Token);
                 else
-                    await ExecuteTaskAsync(task.Id, executionAgent, cts.Token);
+                    await ExecuteTaskAsync(task.Id, executionAgent, cts.Token, skipApproval: true);
             }
             finally
             {
@@ -478,6 +541,11 @@ public class TaskService
             ExecutionBackend = persistedAgent.ExecutionBackend,
             RequiresApproval = persistedAgent.RequiresApproval,
             ConfidenceThreshold = persistedAgent.ConfidenceThreshold,
+            LocalAutomationEnabled = persistedAgent.LocalAutomationEnabled,
+            AllowPowerShellScripts = persistedAgent.AllowPowerShellScripts,
+            AllowDestructiveActions = persistedAgent.AllowDestructiveActions,
+            LocalAutomationApprovalMode = persistedAgent.LocalAutomationApprovalMode,
+            AllowedLocalRootsJson = persistedAgent.AllowedLocalRootsJson,
             SpawnEnabled = persistedAgent.SpawnEnabled,
             SpawnMode = persistedAgent.SpawnMode,
             SpawnTriggerType = persistedAgent.SpawnTriggerType,
@@ -492,7 +560,7 @@ public class TaskService
         };
     }
 
-    private async Task ExecuteTaskAsync(string taskId, Agent agent, CancellationToken cancellationToken)
+    private async Task ExecuteTaskAsync(string taskId, Agent agent, CancellationToken cancellationToken, bool skipApproval = false)
     {
         await using var db = _factory.CreateDbContext();
         var task = await db.Tasks.FirstOrDefaultAsync(t => t.Id == taskId);
@@ -504,6 +572,185 @@ public class TaskService
             task.Progress = 10;
             await db.SaveChangesAsync();
             await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
+
+            if (agent.LocalAutomationEnabled)
+            {
+                var planningContext = await BuildLocalAutomationPlanningContextAsync(db, task);
+                var shortcutPlan = TryBuildRecentFolderShortcut(task.Input ?? string.Empty, planningContext.RecentTouchedPaths, agent.AllowedLocalRootsJson);
+                var localResult = shortcutPlan is not null
+                    ? await _localAutomation.ExecuteProvidedPlanAsync(agent, task, shortcutPlan, cancellationToken, skipApproval)
+                    : await _localAutomation.PlanAndExecuteAsync(
+                        agent,
+                        task,
+                        cancellationToken,
+                        skipApproval,
+                        planningContext.Input,
+                        planningContext.RecentTouchedPaths);
+
+                if (localResult.RequiresElevatedApproval)
+                {
+                    task.RequiresElevatedApproval = true;
+                    task.Status = AgentTaskStatus.PendingApproval;
+                    task.Progress = 0;
+                    task.LocalActionResultJson = JsonSerializer.Serialize(localResult);
+                    task.LocalCapabilityId = localResult.LocalCapabilityId;
+                    task.TouchedPathsJson = JsonSerializer.Serialize(localResult.TouchedPaths);
+                    task.ApprovalEvidence = localResult.Message;
+                    task.PromptTokens = localResult.PromptTokens;
+                    task.CompletionTokens = localResult.CompletionTokens;
+                    task.TotalTokens = localResult.TotalTokens;
+                    task.CostUSD = localResult.CostUSD;
+                    task.ModelUsed = localResult.ModelUsed;
+                    task.ConfidenceScore = localResult.ConfidenceScore;
+
+                    var pausedAgent = await db.Agents.FindAsync(agent.Id);
+                    if (pausedAgent != null)
+                    {
+                        pausedAgent.Status = AgentStatus.Idle;
+                        pausedAgent.CurrentTask = "Idle";
+                    }
+
+                    await _events.LogAsync(
+                        task.Id,
+                        task.AgentId,
+                        TaskExecutionEventType.TaskPendingApproval,
+                        "Task requires approval before local automation can execute.",
+                        new
+                        {
+                            localResult.Plan?.Summary,
+                            localResult.TouchedPaths
+                        });
+
+                    await db.SaveChangesAsync();
+                    await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
+                    await _realtime.AgentUpdatedAsync(agent.Id);
+                    return;
+                }
+
+                if (!localResult.Success)
+                {
+                    task.Output = _localAutomationFormatter.FormatFailure(localResult);
+                    task.LocalCapabilityId = localResult.LocalCapabilityId;
+                    task.LocalCapabilityExecutionJson = localResult.LocalCapabilityExecutionJson;
+                    task.LocalActionResultJson = JsonSerializer.Serialize(localResult);
+                    task.TouchedPathsJson = JsonSerializer.Serialize(localResult.TouchedPaths);
+                    task.PromptTokens = localResult.PromptTokens;
+                    task.CompletionTokens = localResult.CompletionTokens;
+                    task.TotalTokens = localResult.TotalTokens;
+                    task.CostUSD = localResult.CostUSD;
+                    task.ModelUsed = localResult.ModelUsed;
+                    task.ConfidenceScore = localResult.ConfidenceScore;
+                    task.ExecutionTrace = string.Join(Environment.NewLine, new[] { task.ExecutionTrace, localResult.Trace }.Where(x => !string.IsNullOrWhiteSpace(x)));
+                    task.Status = AgentTaskStatus.Failed;
+                    task.ErrorMessage = localResult.Message ?? "Local execution reported an unsuccessful result.";
+                    task.CompletedAt = DateTime.UtcNow;
+                    task.Progress = 0;
+                    task.DurationMs = task.StartedAt.HasValue
+                        ? (long)Math.Max(0, (task.CompletedAt.Value - task.StartedAt.Value).TotalMilliseconds)
+                        : 0;
+
+                    var failedAgentRecord = await db.Agents.FindAsync(agent.Id);
+                    if (failedAgentRecord != null)
+                    {
+                        failedAgentRecord.TasksFailed++;
+                        failedAgentRecord.Status = AgentStatus.Error;
+                    }
+
+                    db.Logs.Add(new LogEntry
+                    {
+                        AgentId = agent.Id,
+                        AgentName = agent.Name,
+                        TaskId = taskId,
+                        Message = $"Task '{task.Name}' reported unsuccessful local execution: {task.ErrorMessage}",
+                        Level = AgentLogLevel.Error,
+                        Timestamp = DateTime.UtcNow
+                    });
+                    await _events.LogAsync(
+                        task.Id,
+                        task.AgentId,
+                        TaskExecutionEventType.TaskFailed,
+                        "Task reported unsuccessful local execution.",
+                        new
+                        {
+                            localResult.LocalCapabilityId,
+                            task.ErrorMessage,
+                            task.DurationMs
+                        });
+
+                    await db.SaveChangesAsync();
+                    _realtime.NotifyTaskCompleted(new TaskCompletedNotification(
+                        task.Id, task.AgentId, task.AgentName, task.Name, task.Status));
+                    await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
+                    await _realtime.AgentUpdatedAsync(agent.Id);
+                    await _realtime.DashboardRefreshAsync();
+                    return;
+                }
+
+                task.Output = _localAutomationFormatter.FormatSuccess(localResult);
+                task.LocalCapabilityId = localResult.LocalCapabilityId;
+                task.LocalCapabilityExecutionJson = localResult.LocalCapabilityExecutionJson;
+                task.LocalActionResultJson = JsonSerializer.Serialize(localResult);
+                task.TouchedPathsJson = JsonSerializer.Serialize(localResult.TouchedPaths);
+                task.PromptTokens = localResult.PromptTokens;
+                task.CompletionTokens = localResult.CompletionTokens;
+                task.TotalTokens = localResult.TotalTokens;
+                task.CostUSD = localResult.CostUSD;
+                task.ModelUsed = localResult.ModelUsed;
+                task.ConfidenceScore = localResult.ConfidenceScore;
+                task.ExecutionTrace = string.Join(Environment.NewLine, new[] { task.ExecutionTrace, localResult.Trace }.Where(x => !string.IsNullOrWhiteSpace(x)));
+                task.Progress = 100;
+                task.Status = AgentTaskStatus.Completed;
+                task.CompletedAt = DateTime.UtcNow;
+                task.DurationMs = task.StartedAt.HasValue
+                    ? (long)Math.Max(0, (task.CompletedAt.Value - task.StartedAt.Value).TotalMilliseconds)
+                    : 0;
+
+                var localAgentRecord = await db.Agents.FindAsync(agent.Id);
+                if (localAgentRecord != null)
+                {
+                    localAgentRecord.TotalTokensUsed += localResult.TotalTokens;
+                    localAgentRecord.TotalCostUSD += localResult.CostUSD;
+                    localAgentRecord.TasksCompleted++;
+                    localAgentRecord.Status = AgentStatus.Idle;
+                    localAgentRecord.CurrentTask = "Idle";
+                }
+
+                db.Logs.Add(new LogEntry
+                {
+                    AgentId = agent.Id,
+                    AgentName = agent.Name,
+                    TaskId = taskId,
+                    Message = localResult.LocalCapabilityId is not null
+                        ? $"Task '{task.Name}' completed local capability '{localResult.LocalCapabilityId}'."
+                        : $"Task '{task.Name}' completed local automation with {localResult.ActionResults.Count} action(s)",
+                    Level = AgentLogLevel.Success,
+                    Timestamp = DateTime.UtcNow
+                });
+                await _events.LogAsync(
+                    task.Id,
+                    task.AgentId,
+                    TaskExecutionEventType.TaskCompleted,
+                    localResult.LocalCapabilityId is not null
+                        ? "Task completed local capability successfully."
+                        : "Task completed local automation successfully.",
+                    new
+                    {
+                        localResult.TotalTokens,
+                        localResult.CostUSD,
+                        localResult.ModelUsed,
+                        localResult.LocalCapabilityId,
+                        ActionCount = localResult.ActionResults.Count,
+                        task.DurationMs
+                    });
+
+                await db.SaveChangesAsync();
+                _realtime.NotifyTaskCompleted(new TaskCompletedNotification(
+                    task.Id, task.AgentId, task.AgentName, task.Name, task.Status));
+                await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
+                await _realtime.AgentUpdatedAsync(agent.Id);
+                await _realtime.DashboardRefreshAsync();
+                return;
+            }
 
             var result = await _llm.ExecuteAsync(agent, task.Input ?? string.Empty, task.SystemPromptSnapshot ?? agent.SystemPrompt, cancellationToken, task.Id);
 
@@ -742,6 +989,11 @@ public class TaskService
             ExecutionBackend = task.ExecutionBackendSnapshot,
             RequiresApproval = persistedAgent.RequiresApproval,
             ConfidenceThreshold = persistedAgent.ConfidenceThreshold,
+            LocalAutomationEnabled = persistedAgent.LocalAutomationEnabled,
+            AllowPowerShellScripts = persistedAgent.AllowPowerShellScripts,
+            AllowDestructiveActions = persistedAgent.AllowDestructiveActions,
+            LocalAutomationApprovalMode = persistedAgent.LocalAutomationApprovalMode,
+            AllowedLocalRootsJson = persistedAgent.AllowedLocalRootsJson,
             SpawnEnabled = persistedAgent.SpawnEnabled,
             SpawnMode = persistedAgent.SpawnMode,
             SpawnTriggerType = persistedAgent.SpawnTriggerType,
@@ -795,6 +1047,46 @@ public class TaskService
     private static string SerializeSnapshot(IEnumerable<SnapshotItem> items)
         => JsonSerializer.Serialize(items.ToList());
 
+    private static async Task<LocalAutomationPlanningContext> BuildLocalAutomationPlanningContextAsync(AppDbContext db, AgentTask task)
+    {
+        var originalInput = task.Input ?? string.Empty;
+
+        var recentTouchedPaths = await db.Tasks
+            .Where(t => t.AgentId == task.AgentId &&
+                        t.Id != task.Id &&
+                        t.Status == AgentTaskStatus.Completed &&
+                        !string.IsNullOrWhiteSpace(t.TouchedPathsJson))
+            .OrderByDescending(t => t.CompletedAt ?? t.CreatedAt)
+            .Take(5)
+            .Select(t => t.TouchedPathsJson!)
+            .ToListAsync();
+
+        var flattenedPaths = recentTouchedPaths
+            .SelectMany(ParseTouchedPaths)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (flattenedPaths.Count == 0)
+        {
+            return new LocalAutomationPlanningContext(originalInput, Array.Empty<string>());
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine("User request:");
+        sb.AppendLine(originalInput);
+        sb.AppendLine();
+        sb.AppendLine("Recent local path context:");
+        foreach (var path in flattenedPaths)
+        {
+            sb.AppendLine($"- {path}");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("If the request refers to one of these folders or files by name, reuse the exact absolute path from this context.");
+        sb.AppendLine("Do not change the drive letter unless the user explicitly requests a different path.");
+        return new LocalAutomationPlanningContext(sb.ToString().Trim(), flattenedPaths);
+    }
+
     private static List<string> DeserializeSnapshotIds(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
@@ -813,10 +1105,142 @@ public class TaskService
         }
     }
 
+    private static IEnumerable<string> ParseTouchedPaths(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            yield break;
+        }
+
+        List<string>? paths = null;
+        try
+        {
+            paths = JsonSerializer.Deserialize<List<string>>(json);
+        }
+        catch
+        {
+            yield break;
+        }
+
+        if (paths is null)
+        {
+            yield break;
+        }
+
+        foreach (var path in paths.Where(p => !string.IsNullOrWhiteSpace(p)))
+        {
+            yield return path;
+        }
+    }
+
+    private static LocalAutomationPlan? TryBuildRecentFolderShortcut(
+        string input,
+        IReadOnlyList<string> recentTouchedPaths,
+        string? allowedRootsJson)
+    {
+        if (string.IsNullOrWhiteSpace(input) || recentTouchedPaths.Count == 0)
+            recentTouchedPaths = Array.Empty<string>();
+
+        if (!input.Contains("create", StringComparison.OrdinalIgnoreCase) ||
+            !input.Contains("file", StringComparison.OrdinalIgnoreCase) ||
+            !input.Contains("folder", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var fileMatch = Regex.Match(input, @"named\s+['""]?(?<file>[^'""]+\.[A-Za-z0-9]+)['""]?", RegexOptions.IgnoreCase);
+        if (!fileMatch.Success)
+        {
+            return null;
+        }
+
+        var folderMatches = recentTouchedPaths
+            .Select(path => LocalAutomationPathResolver.NormalizePath(path))
+            .Where(path =>
+            {
+                var name = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                return !string.IsNullOrWhiteSpace(name) &&
+                       input.Contains(name, StringComparison.OrdinalIgnoreCase);
+            })
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (folderMatches.Count == 0)
+        {
+            folderMatches = FindMatchingFoldersInAllowedRoots(input, allowedRootsJson);
+        }
+
+        if (folderMatches.Count != 1)
+        {
+            return null;
+        }
+
+        return new LocalAutomationPlan
+        {
+            Summary = $"Create file in {folderMatches[0]}",
+            Actions =
+            [
+                new LocalAutomationAction
+                {
+                    Type = LocalAutomationActionType.WriteTextFile,
+                    Path = Path.Combine(folderMatches[0], fileMatch.Groups["file"].Value),
+                    Content = string.Empty
+                }
+            ]
+        };
+    }
+
+    private static List<string> FindMatchingFoldersInAllowedRoots(string input, string? allowedRootsJson)
+    {
+        if (string.IsNullOrWhiteSpace(allowedRootsJson))
+        {
+            return new List<string>();
+        }
+
+        List<string>? allowedRoots = null;
+        try
+        {
+            allowedRoots = JsonSerializer.Deserialize<List<string>>(allowedRootsJson);
+        }
+        catch
+        {
+            return new List<string>();
+        }
+
+        if (allowedRoots is null || allowedRoots.Count == 0)
+        {
+            return new List<string>();
+        }
+
+        var requestedFolderNames = allowedRoots
+            .SelectMany(root => Directory.Exists(root)
+                ? Directory.GetDirectories(root, "*", SearchOption.AllDirectories)
+                : Array.Empty<string>())
+            .Select(path => Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)))
+            .Where(name => !string.IsNullOrWhiteSpace(name) && input.Contains(name, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (requestedFolderNames.Count != 1)
+        {
+            return new List<string>();
+        }
+
+        var targetName = requestedFolderNames[0];
+        return allowedRoots
+            .SelectMany(root => Directory.Exists(root)
+                ? Directory.GetDirectories(root, targetName, SearchOption.AllDirectories)
+                : Array.Empty<string>())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     private sealed class TaskExecutionProfile
     {
         public Agent RuntimeAgent { get; set; } = new();
     }
+
+    private sealed record LocalAutomationPlanningContext(string Input, IReadOnlyList<string> RecentTouchedPaths);
 
     private sealed class SnapshotItem
     {
