@@ -26,7 +26,12 @@ builder.Services.AddDbContextFactory<AppDbContext>(options =>
     var provider = (databaseConfig.Provider ?? "SQLite").Trim();
     if (provider.Equals("SqlServer", StringComparison.OrdinalIgnoreCase))
     {
-        options.UseSqlServer(BuildSqlServerConnectionString(databaseConfig));
+        options.UseSqlServer(
+            BuildSqlServerConnectionString(databaseConfig),
+            sql => sql.EnableRetryOnFailure(
+                maxRetryCount: 5,
+                maxRetryDelay: TimeSpan.FromSeconds(10),
+                errorNumbersToAdd: null));
     }
     else
     {
@@ -110,7 +115,7 @@ static string BuildSqlServerConnectionString(DatabaseConfig config)
         $"Server={config.Server}",
         $"Database={config.Database}",
         $"TrustServerCertificate={(config.TrustServerCertificate ? "True" : "False")}",
-        "MultipleActiveResultSets=True"
+        "Connect Timeout=30"
     };
 
     if (config.IntegratedSecurity)

@@ -4519,6 +4519,330 @@ textarea.form-input {
     pointer-events: all;
     animation: slide-in-right 280ms cubic-bezier(0, 0, 0.2, 1) both;
 }
+
+/* ================================================================
+   Crew Panels
+   ================================================================ */
+
+.agent-card.agent-card--crew {
+    padding: 18px 20px 18px;
+    border-radius: 20px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-panel);
+    box-shadow: var(--shadow-card);
+}
+
+.agent-card.agent-card--crew:hover {
+    transform: translateY(-4px) scale(1.005);
+    border-color: var(--border-default);
+    background: var(--bg-panel);
+    box-shadow: var(--shadow-lg);
+}
+
+.agent-card.agent-card--crew::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background:
+        radial-gradient(circle at top right, rgba(143,88,216,0.08), transparent 34%),
+        linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0));
+    opacity: 0.85;
+}
+
+.agent-card-grid {
+    position: relative;
+    display: grid;
+    gap: 12px;
+    z-index: 1;
+}
+
+.agent-card--crew .agent-card-header {
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 0;
+}
+
+.agent-avatar-shell {
+    position: relative;
+    flex: 0 0 auto;
+}
+
+.agent-card--crew .agent-avatar {
+    width: 52px;
+    height: 52px;
+    border-radius: 16px;
+    box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.1),
+        0 8px 18px rgba(0,0,0,0.22);
+}
+
+.agent-avatar-initials {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+}
+
+.agent-avatar-rank {
+    position: absolute;
+    right: -4px;
+    bottom: -6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 26px;
+    height: 22px;
+    padding: 0 7px;
+    border-radius: 999px;
+    border: 1px solid rgba(143,88,216,0.18);
+    background: rgba(255,255,255,0.72);
+    color: var(--accent2);
+    font-size: 0.63rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.agent-card--crew .agent-info {
+    display: grid;
+    gap: 4px;
+}
+
+.agent-callsign-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.agent-callsign {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(143, 88, 216, 0.88);
+}
+
+.agent-card--crew .agent-name {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    white-space: normal;
+    color: #f8fafc;
+}
+
+.agent-title {
+    color: var(--txt-primary);
+    font-size: 0.92rem;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.agent-card--crew .agent-host {
+    color: var(--txt-muted);
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.agent-command-state {
+    margin-left: auto;
+    display: grid;
+    justify-items: end;
+    gap: 6px;
+}
+
+.agent-mission {
+    padding: 14px 16px;
+    border-radius: 16px;
+    border: 1px solid rgba(143,88,216,0.10);
+    background: rgba(255,255,255,0.42);
+}
+
+.agent-mission-kicker,
+.agent-presence-panel__label,
+.agent-telemetry__label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--txt-muted);
+}
+
+.agent-mission-text {
+    margin-top: 8px;
+    font-size: 0.92rem;
+    font-weight: 700;
+    line-height: 1.5;
+    color: #f8fafc;
+}
+
+.agent-mission-context {
+    margin-top: 8px;
+    font-size: 0.8rem;
+    line-height: 1.55;
+    color: var(--txt-secondary);
+}
+
+.agent-presence-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 132px) minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(143,88,216,0.10);
+    background: rgba(255,255,255,0.38);
+}
+
+.agent-presence-panel--active {
+    box-shadow: inset 0 0 0 1px rgba(34,197,94,0.06);
+}
+
+.agent-presence-panel--warning {
+    box-shadow: inset 0 0 0 1px rgba(245,158,11,0.08);
+}
+
+.agent-presence-panel--error {
+    box-shadow: inset 0 0 0 1px rgba(239,68,68,0.08);
+}
+
+.agent-presence-panel__value {
+    margin-top: 4px;
+    color: var(--txt-primary);
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+
+.agent-presence-panel__summary {
+    color: var(--txt-secondary);
+    font-size: 0.78rem;
+    line-height: 1.5;
+}
+
+.agent-card--crew .agent-bars {
+    gap: 8px;
+    margin-bottom: 0;
+}
+
+.agent-card--crew .bar-row {
+    gap: 10px;
+    font-size: 0.72rem;
+}
+
+.agent-card--crew .bar-track {
+    height: 6px;
+    background: rgba(99, 102, 241, 0.10);
+}
+
+.agent-card--crew .bar-val {
+    width: 42px;
+    color: var(--txt-secondary);
+}
+
+.agent-telemetry {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.agent-telemetry__item {
+    padding: 11px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(143,88,216,0.10);
+    background: rgba(255,255,255,0.38);
+    min-width: 0;
+}
+
+.agent-telemetry__item strong {
+    display: block;
+    margin-top: 6px;
+    color: var(--txt-primary);
+    font-size: 0.92rem;
+    line-height: 1.35;
+    white-space: nowrap;
+}
+
+.agent-card--crew .agent-footer {
+    padding-top: 0;
+    border-top: 0;
+    align-items: center;
+    gap: 14px;
+}
+
+.agent-card--crew .agent-stats {
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.agent-card--crew .agent-stat {
+    gap: 6px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(143,88,216,0.10);
+    background: rgba(255,255,255,0.44);
+    color: var(--txt-secondary);
+}
+
+.agent-card--crew .agent-stat .n {
+    color: inherit;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.agent-card--crew.s-offline {
+    opacity: 0.84;
+}
+
+.g-agents {
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 18px;
+    align-items: stretch;
+}
+
+@media (max-width: 920px) {
+    .agent-telemetry {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .g-agents {
+        grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+    }
+}
+
+@media (max-width: 620px) {
+    .agent-card.agent-card--crew {
+        padding: 15px;
+        border-radius: 18px;
+    }
+
+    .agent-card--crew .agent-card-header {
+        flex-direction: column;
+    }
+
+    .agent-presence-panel {
+        grid-template-columns: 1fr;
+    }
+
+    .agent-command-state {
+        margin-left: 0;
+        width: auto;
+        justify-items: start;
+    }
+
+    .agent-telemetry {
+        grid-template-columns: 1fr;
+    }
+
+    .agent-card--crew .agent-footer {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
 .toast:hover { opacity: 0.92; }
 .toast--success { border-left: 3px solid var(--c-active); }
 .toast--error   { border-left: 3px solid var(--c-error); }
