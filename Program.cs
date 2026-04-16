@@ -26,7 +26,12 @@ builder.Services.AddDbContextFactory<AppDbContext>(options =>
     var provider = (databaseConfig.Provider ?? "SQLite").Trim();
     if (provider.Equals("SqlServer", StringComparison.OrdinalIgnoreCase))
     {
-        options.UseSqlServer(BuildSqlServerConnectionString(databaseConfig));
+        options.UseSqlServer(
+            BuildSqlServerConnectionString(databaseConfig),
+            sql => sql.EnableRetryOnFailure(
+                maxRetryCount: 5,
+                maxRetryDelay: TimeSpan.FromSeconds(10),
+                errorNumbersToAdd: null));
     }
     else
     {
@@ -61,6 +66,15 @@ builder.Services.AddHostedService<AgentSchedulerService>();
 builder.Services.AddHostedService<HermesOpenClawSyncService>();
 builder.Services.AddScoped<MemoryService>();
 builder.Services.AddScoped<LLMExecutionService>();
+builder.Services.AddScoped<LocalAutomationValidator>();
+builder.Services.AddScoped<LocalAutomationExecutor>();
+builder.Services.AddScoped<LocalAutomationResponseFormatter>();
+builder.Services.AddScoped<LocalCapabilityService>();
+builder.Services.AddScoped<PendingLocalCapabilityDraftService>();
+builder.Services.AddScoped<LocalCapabilityMatcher>();
+builder.Services.AddScoped<LocalCapabilityExecutor>();
+builder.Services.AddSingleton(_ => new LocalCapabilityScriptStore(builder.Environment.ContentRootPath));
+builder.Services.AddScoped<LocalAutomationOrchestrator>();
 builder.Services.AddScoped<LogService>();
 builder.Services.AddScoped<TaskExecutionEventService>();
 builder.Services.AddSingleton<RealtimeService>();
@@ -101,7 +115,7 @@ static string BuildSqlServerConnectionString(DatabaseConfig config)
         $"Server={config.Server}",
         $"Database={config.Database}",
         $"TrustServerCertificate={(config.TrustServerCertificate ? "True" : "False")}",
-        "MultipleActiveResultSets=True"
+        "Connect Timeout=30"
     };
 
     if (config.IntegratedSecurity)

@@ -245,6 +245,68 @@ else
             }
         </div>
 
+        <div class="card card-pad">
+            <h3 class="section-title mb-4">Local Automation</h3>
+            <p class="form-section-intro">Use this for the dedicated agent that should operate on the Mission Control host machine.</p>
+            <div class="toggle-group">
+                <div class="toggle-item">
+                    <div>
+                        <div class="toggle-label">Enable Local Automation</div>
+                        <div class="toggle-desc text-muted text-sm">Allow this agent to plan and run validated local host actions.</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" @bind="agent.LocalAutomationEnabled" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="toggle-item">
+                    <div>
+                        <div class="toggle-label">Allow PowerShell</div>
+                        <div class="toggle-desc text-muted text-sm">Allow PowerShell execution when the plan and approval rules permit it.</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" @bind="agent.AllowPowerShellScripts" disabled="@(!agent.LocalAutomationEnabled)" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="toggle-item">
+                    <div>
+                        <div class="toggle-label">Allow Destructive Actions</div>
+                        <div class="toggle-desc text-muted text-sm">Permit delete and overwrite actions after validation.</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" @bind="agent.AllowDestructiveActions" disabled="@(!agent.LocalAutomationEnabled)" />
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+            @if (agent.LocalAutomationEnabled)
+            {
+                <div class="form-group mt-4">
+                    <label class="form-label">Automation Approval Mode</label>
+                    <select class="form-input" @bind="agent.LocalAutomationApprovalMode">
+                        <option value="@LocalAutomationApprovalMode.Restricted">Restricted - approve every local action</option>
+                        <option value="@LocalAutomationApprovalMode.ApproveRiskyOnly">Approve risky only</option>
+                        <option value="@LocalAutomationApprovalMode.FullControl">Full control - no local approval gates</option>
+                    </select>
+                    <div class="form-hint">
+                        <i class="bi bi-info-circle"></i>
+                        This controls local automation approvals only. The general agent approval toggle still applies separately.
+                    </div>
+                </div>
+
+                <div class="form-group mt-4">
+                    <label class="form-label">Allowed Root Paths</label>
+                    <textarea class="form-input font-mono" rows="4" @bind="allowedRootsText"
+                              placeholder="One absolute path per line&#10;C:\Exports&#10;D:\DropFolders"></textarea>
+                    <div class="form-hint">
+                        <i class="bi bi-info-circle"></i>
+                        The agent can only touch files under these roots.
+                    </div>
+                </div>
+            }
+        </div>
+
         <!-- Dynamic Spawning -->
         <div class="card card-pad">
             <h3 class="section-title mb-4">Dynamic Spawning</h3>
@@ -503,6 +565,7 @@ else
     private bool isSaving;
     private bool showDeleteConfirm;
     private string errorMsg = "";
+    private string allowedRootsText = "";
 
     // Schedule fields
     private bool scheduleEnabled;
@@ -540,6 +603,8 @@ else
             scheduleInput = agent.Schedule.DefaultInput ?? "";
             schedulePriority = agent.Schedule.Priority;
         }
+
+        allowedRootsText = AllowedRootsToText(agent?.AllowedLocalRootsJson);
     }
 
     private void ToggleMcp(string mcpId, bool assigned)
@@ -573,6 +638,7 @@ else
         errorMsg = "";
         try
         {
+            agent.AllowedLocalRootsJson = agent.LocalAutomationEnabled ? AllowedRootsToJson(allowedRootsText) : null;
             await AgentService.UpdateAsync(agent);
 
             // Save schedule
@@ -679,4 +745,32 @@ else
         LLMProviderType.Custom => "bi-braces",
         _ => "bi-cpu"
     };
+
+    private static string AllowedRootsToText(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return string.Empty;
+
+        try
+        {
+            var roots = System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
+            return string.Join(Environment.NewLine, roots);
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string? AllowedRootsToJson(string? text)
+    {
+        var roots = (text ?? string.Empty)
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(root => root.Trim())
+            .Where(root => !string.IsNullOrWhiteSpace(root))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return roots.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(roots);
+    }
 }

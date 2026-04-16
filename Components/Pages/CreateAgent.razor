@@ -1,6 +1,8 @@
 @page "/agents/create"
 @rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
 @inject AgentService AgentService
+@inject IDbContextFactory<AppDbContext> DbFactory
 @inject LLMProviderService ProviderService
 @inject TemplateService TemplateService
 @inject SkillService SkillService
@@ -244,6 +246,37 @@
             </div>
 
             <div class="card card-pad mt-4">
+                <h3 class="section-title mb-4">MCP Servers</h3>
+                <p class="form-section-intro">Attach non-global MCP servers only when this agent truly needs them.</p>
+                @if (!allMcpServers.Any())
+                {
+                    <div class="text-muted text-sm">No MCP servers configured. <a href="/mcp" class="text-accent">Add one first.</a></div>
+                }
+                else
+                {
+                    <div class="mcp-assign-list">
+                        @foreach (var mcp in allMcpServers)
+                        {
+                            var isAssigned = assignedMcpIds.Contains(mcp.Id);
+                            <label class="mcp-assign-row @(isAssigned ? "mcp-assign-row--on" : "")">
+                                <input type="checkbox" checked="@isAssigned"
+                                       @onchange="e => ToggleMcp(mcp.Id, (bool)(e.Value ?? false))" />
+                                <div class="mcp-assign-info">
+                                    <span class="text-sm font-medium">@mcp.Name</span>
+                                    @if (mcp.IsGlobal)
+                                    {
+                                        <span class="badge badge-accent ml-2 text-xs">Global</span>
+                                    }
+                                    <div class="text-xs font-mono text-muted">@mcp.Endpoint</div>
+                                </div>
+                                <span class="mcp-transport-badge @mcp.TransportType.ToString().ToLower() ml-auto">@mcp.TransportType</span>
+                            </label>
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="card card-pad mt-4">
                 <h3 class="section-title mb-4">Capability Skills</h3>
                 <p class="form-section-intro">Attach reusable skills that influence prompt framing, guardrails, and tool limits.</p>
                 @if (!skillsCatalog.Any())
@@ -313,6 +346,69 @@
                         </div>
                     }
                 </div>
+            </div>
+
+            <div class="card card-pad mt-4">
+                <h3 class="section-title mb-4">Local Automation</h3>
+                <p class="form-section-intro">Enable this only for agents that should act on the Mission Control host machine.</p>
+                <div class="toggle-group">
+                    <div class="toggle-item">
+                        <div>
+                            <div class="toggle-label">Enable Local Automation</div>
+                            <div class="toggle-desc text-muted text-sm">Lets the agent plan and run validated local file actions on this machine.</div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" @bind="agent.LocalAutomationEnabled" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="toggle-item">
+                        <div>
+                            <div class="toggle-label">Allow PowerShell</div>
+                            <div class="toggle-desc text-muted text-sm">Allow planner output to execute PowerShell after approval checks.</div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" @bind="agent.AllowPowerShellScripts" disabled="@(!agent.LocalAutomationEnabled)" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="toggle-item">
+                        <div>
+                            <div class="toggle-label">Allow Destructive Actions</div>
+                            <div class="toggle-desc text-muted text-sm">Permit delete and overwrite actions after validation.</div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" @bind="agent.AllowDestructiveActions" disabled="@(!agent.LocalAutomationEnabled)" />
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                @if (agent.LocalAutomationEnabled)
+                {
+                    <div class="form-group mt-4">
+                        <label class="form-label">Automation Approval Mode</label>
+                        <select class="form-input" @bind="agent.LocalAutomationApprovalMode">
+                            <option value="@LocalAutomationApprovalMode.Restricted">Restricted - approve every local action</option>
+                            <option value="@LocalAutomationApprovalMode.ApproveRiskyOnly">Approve risky only</option>
+                            <option value="@LocalAutomationApprovalMode.FullControl">Full control - no local approval gates</option>
+                        </select>
+                        <div class="form-hint">
+                            <i class="bi bi-info-circle"></i>
+                            This setting controls local automation approvals only. The general agent approval toggle still applies separately.
+                        </div>
+                    </div>
+
+                    <div class="form-group mt-4">
+                        <label class="form-label">Allowed Root Paths</label>
+                        <textarea class="form-input font-mono" rows="4" @bind="allowedRootsText"
+                                  placeholder="One absolute path per line&#10;C:\Exports&#10;D:\DropFolders"></textarea>
+                        <div class="form-hint">
+                            <i class="bi bi-info-circle"></i>
+                            The agent can only touch files under these roots.
+                        </div>
+                    </div>
+                }
             </div>
         }
 
@@ -385,6 +481,72 @@
                         <input class="form-input" type="number" @bind="agent.ConfidenceThreshold" min="0" max="1" step="0.05" />
                     </div>
                 }
+
+                <div class="mt-4">
+                    <h4 class="section-title mb-3">Schedule (Cron)</h4>
+                    <label class="form-check mb-3">
+                        <input type="checkbox" @bind="scheduleEnabled" />
+                        <span>Enable scheduled runs</span>
+                    </label>
+                    @if (scheduleEnabled)
+                    {
+                        <div class="form-group mb-3">
+                            <label class="form-label">Quick Presets</label>
+                            <div class="type-picker">
+                                @foreach (var preset in schedulePresets)
+                                {
+                                    <button type="button"
+                                            class="type-btn @(cronExpression == preset.Expression ? "type-btn--active" : "")"
+                                            @onclick='() => ApplySchedulePreset(preset.Expression)'>
+                                        <i class="bi bi-clock-history"></i> @preset.Label
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Cron Expression</label>
+                                <input class="form-input font-mono" @bind="cronExpression" placeholder="0 9 * * *" />
+                                <div class="form-hint">
+                                    <i class="bi bi-info-circle"></i>
+                                    @CronHint(cronExpression)
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Priority</label>
+                                <select class="form-input" @bind="schedulePriority">
+                                    @foreach (var p in Enum.GetValues<TaskPriority>())
+                                    {
+                                        <option value="@p">@p</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Default Input</label>
+                            <textarea class="form-input" rows="3" @bind="scheduleInput"
+                                      placeholder="Default task input sent on each scheduled run..."></textarea>
+                        </div>
+                        <div class="token-stats">
+                            <div class="token-stat">
+                                <span class="text-muted text-xs">Next Run</span>
+                                <span>@NextRunPreview</span>
+                            </div>
+                            <div class="token-stat">
+                                <span class="text-muted text-xs">Last Run</span>
+                                <span>Never</span>
+                            </div>
+                            <div class="token-stat">
+                                <span class="text-muted text-xs">Total Runs</span>
+                                <span>0</span>
+                            </div>
+                            <div class="token-stat">
+                                <span class="text-muted text-xs">Mode</span>
+                                <span>@(agent.ExecutionBackend == ExecutionBackend.HermesOpenClaw ? "Delegated" : "Local")</span>
+                            </div>
+                        </div>
+                    }
+                </div>
             </div>
 
             <!-- Summary -->
@@ -565,14 +727,29 @@
 
     private List<LLMProvider> providers = new();
     private List<AgentTemplate> templates = new();
+    private List<MCPServer> allMcpServers = new();
     private List<SkillDefinition> skillsCatalog = new();
     private string? selectedTemplateId;
     private HashSet<string> selectedTools = new();
     private HashSet<string> selectedSkillIds = new();
+    private HashSet<string> assignedMcpIds = new();
     private int currentStep = 1;
     private bool isSaving;
     private string errorMsg = "";
     private long? tokenBudget;
+    private string allowedRootsText = "";
+    private bool scheduleEnabled;
+    private string cronExpression = "0 9 * * *";
+    private string scheduleInput = "";
+    private TaskPriority schedulePriority = TaskPriority.Medium;
+
+    private static readonly (string Label, string Expression)[] schedulePresets =
+    {
+        ("Hourly", "0 * * * *"),
+        ("Daily 9 AM", "0 9 * * *"),
+        ("Weekdays 9 AM", "0 9 * * 1,2,3,4,5"),
+        ("Monday 9 AM", "0 9 * * 1")
+    };
 
     private static readonly Dictionary<string, (string icon, string desc)> availableTools = new()
     {
@@ -591,6 +768,12 @@
         templates = await TemplateService.GetAllAsync();
         skillsCatalog = await SkillService.GetAllAsync();
 
+        await using var db = DbFactory.CreateDbContext();
+        allMcpServers = await db.MCPServers
+            .Where(m => m.IsEnabled)
+            .OrderBy(m => m.Name)
+            .ToListAsync();
+
         // Set default provider
         var def = providers.FirstOrDefault(p => p.IsDefault) ?? providers.FirstOrDefault();
         if (def != null) agent.LLMProviderId = def.Id;
@@ -601,6 +784,8 @@
             var t = templates.FirstOrDefault(x => x.Id == templateId);
             if (t != null) ApplyTemplate(t);
         }
+
+        allowedRootsText = AllowedRootsToText(agent.AllowedLocalRootsJson);
     }
 
     private void ApplyTemplate(AgentTemplate? t)
@@ -613,6 +798,7 @@
             agent.LLMProviderId = currentProviderId;
             selectedTools.Clear();
             selectedSkillIds.Clear();
+            allowedRootsText = "";
             return;
         }
 
@@ -621,6 +807,7 @@
         agent.SystemPrompt = t.SystemPrompt;
         agent.TemplateId = t.Id;
         if (string.IsNullOrWhiteSpace(agent.Name)) agent.Name = t.Name;
+        allowedRootsText = AllowedRootsToText(agent.AllowedLocalRootsJson);
     }
 
     private void ToggleTool(string tool)
@@ -631,6 +818,17 @@
     private void ToggleSkill(string skillId)
     {
         if (!selectedSkillIds.Remove(skillId)) selectedSkillIds.Add(skillId);
+    }
+
+    private void ToggleMcp(string mcpId, bool assigned)
+    {
+        if (assigned) assignedMcpIds.Add(mcpId);
+        else assignedMcpIds.Remove(mcpId);
+    }
+
+    private void ApplySchedulePreset(string expression)
+    {
+        cronExpression = expression;
     }
 
     private static IEnumerable<IGrouping<SkillCategory, SkillDefinition>> SkillsByCategory(IEnumerable<SkillDefinition> skills)
@@ -668,9 +866,24 @@
             : CreateDefaultAgent();
 
         CopyAgentConfiguration(agent, agentToCreate);
+        agentToCreate.AllowedLocalRootsJson = agent.LocalAutomationEnabled ? AllowedRootsToJson(allowedRootsText) : null;
         agentToCreate.TokenBudgetPerDay = tokenBudget > 0 ? tokenBudget : null;
         if (string.IsNullOrWhiteSpace(agentToCreate.HostMachine))
             agentToCreate.HostMachine = $"worker-{DateTime.UtcNow.Ticks % 99:D2}.xpedeon.local";
+
+        if (scheduleEnabled)
+        {
+            agentToCreate.Schedule = new AgentSchedule
+            {
+                CronExpression = cronExpression,
+                DefaultInput = scheduleInput,
+                Priority = schedulePriority,
+                IsEnabled = true,
+                CreatedAt = DateTime.UtcNow,
+                LastRunAt = null,
+                NextRunAt = AgentSchedulerService.ComputeNext(cronExpression, DateTime.UtcNow)
+            };
+        }
 
         // Add selected tools
         agentToCreate.Tools = selectedTools.Select(name => new AgentTool
@@ -689,7 +902,7 @@
         isSaving = true;
         try
         {
-            var created = await AgentService.CreateAsync(agentToCreate);
+            var created = await AgentService.CreateAsync(agentToCreate, assignedMcpIds.ToList());
             Nav.NavigateTo($"/agents/{created.Id}");
         }
         catch (Exception ex)
@@ -712,6 +925,49 @@
     }
 
     private static int EstimateTokens(string text) => (int)(text.Length / 3.8);
+
+    private static string CronHint(string cron) => cron.Trim() switch
+    {
+        "0 9 * * *" => "Every day at 9:00 AM",
+        "0 * * * *" => "Every hour",
+        "*/15 * * * *" => "Every 15 minutes",
+        "0 9 * * 1" => "Every Monday at 9:00 AM",
+        "0 0 * * *" => "Every day at midnight",
+        _ => "Custom cron schedule"
+    };
+
+    private string NextRunPreview
+        => !scheduleEnabled
+            ? "Disabled"
+            : AgentSchedulerService.ComputeNext(cronExpression, DateTime.UtcNow).ToLocalTime().ToString("dd MMM yyyy HH:mm");
+
+    private static string AllowedRootsToText(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return string.Empty;
+
+        try
+        {
+            var roots = System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
+            return string.Join(Environment.NewLine, roots);
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string? AllowedRootsToJson(string? text)
+    {
+        var roots = (text ?? string.Empty)
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(root => root.Trim())
+            .Where(root => !string.IsNullOrWhiteSpace(root))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return roots.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(roots);
+    }
 
     private static string TypeIcon(AgentType t) => t switch
     {
@@ -769,6 +1025,11 @@
         target.IsCircuitOpen = source.IsCircuitOpen;
         target.RequiresApproval = source.RequiresApproval;
         target.ConfidenceThreshold = source.ConfidenceThreshold;
+        target.LocalAutomationEnabled = source.LocalAutomationEnabled;
+        target.AllowPowerShellScripts = source.AllowPowerShellScripts;
+        target.AllowDestructiveActions = source.AllowDestructiveActions;
+        target.LocalAutomationApprovalMode = source.LocalAutomationApprovalMode;
+        target.AllowedLocalRootsJson = source.AllowedLocalRootsJson;
         target.SpawnEnabled = source.SpawnEnabled;
         target.SpawnMode = source.SpawnMode;
         target.SpawnTriggerType = source.SpawnTriggerType;

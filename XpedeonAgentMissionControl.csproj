@@ -35,12 +35,19 @@
   <ItemGroup>
     <Compile Remove="XpedeonAgentMissionControl.Tests\\**\\*.cs" />
     <Compile Remove="artifacts\\**\\*.cs" />
+    <Compile Remove="tools\\llm-wiki\\raw\\**\\*.cs" />
     <Content Remove="XpedeonAgentMissionControl.Tests\\**\\*" />
     <Content Remove="artifacts\\**\\*" />
+    <Content Remove="tools\\llm-wiki\\raw\\**\\*" />
+    <Content Remove="tools\\llm-wiki\\wiki\\**\\*" />
     <EmbeddedResource Remove="XpedeonAgentMissionControl.Tests\\**\\*" />
     <EmbeddedResource Remove="artifacts\\**\\*" />
+    <EmbeddedResource Remove="tools\\llm-wiki\\raw\\**\\*" />
+    <EmbeddedResource Remove="tools\\llm-wiki\\wiki\\**\\*" />
     <None Remove="XpedeonAgentMissionControl.Tests\\**\\*" />
     <None Remove="artifacts\\**\\*" />
+    <None Remove="tools\\llm-wiki\\raw\\**\\*" />
+    <None Remove="tools\\llm-wiki\\wiki\\**\\*" />
   </ItemGroup>
 
 </Project>

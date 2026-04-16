@@ -1,0 +1,443 @@
+@page "/capabilities"
+@rendermode InteractiveServer
+@using System.Text.Json
+@inject LocalCapabilityService CapabilityService
+@inject PendingLocalCapabilityDraftService PendingDraftService
+@inject TaskService TaskService
+@inject NavigationManager Nav
+
+<PageTitle>Capability Library - Xpedeon AMC</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1 class="page-title">Capability Library</h1>
+        <p class="page-subtitle">Browse the built-in local capabilities and any generated scripts saved on this machine.</p>
+    </div>
+    <div class="page-actions">
+        <button class="btn btn-ghost" @onclick='() => Nav.NavigateTo("/tasks")'>
+            <i class="bi bi-list-task"></i> Tasks
+        </button>
+        <button class="btn btn-primary" @onclick="RefreshAsync">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+    </div>
+</div>
+
+@if (pendingDrafts.Any())
+{
+    <div class="section-header mt-4">
+        <i class="bi bi-hourglass-split text-warning"></i>
+        <span>Pending Drafts</span>
+        <span class="badge badge-warning ml-2">@pendingDrafts.Count</span>
+    </div>
+
+    <div class="eval-grid">
+        @foreach (var draft in pendingDrafts)
+        {
+            <div class="card card-pad eval-card">
+                <div class="eval-card__head">
+                    <div>
+                        <div class="section-head"><i class="bi bi-file-earmark-code"></i> @draft.DraftName</div>
+                        <div class="text-xs text-muted mt-1">@draft.AgentName · @draft.TaskName · @draft.CreatedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</div>
+                        @if (!string.IsNullOrWhiteSpace(draft.Summary))
+                        {
+                            <div class="text-sm text-secondary mt-2">@draft.Summary</div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(draft.DraftDescription))
+                        {
+                            <div class="text-sm text-secondary mt-2">@draft.DraftDescription</div>
+                        }
+                    </div>
+                    <div style="display:flex;gap:var(--s2);flex-wrap:wrap;justify-content:flex-end;align-items:flex-start;">
+                        <span class="tag">@draft.DraftCategory</span>
+                        <span class="badge badge-warning">@draft.DraftExecutionType</span>
+                    </div>
+                </div>
+
+                <div class="token-stats mt-4">
+                    <div class="token-stat">
+                        <span class="text-muted text-xs">Task</span>
+                        <span class="font-mono">@draft.TaskId</span>
+                    </div>
+                    <div class="token-stat">
+                        <span class="text-muted text-xs">Agent</span>
+                        <span class="font-mono">@draft.AgentName</span>
+                    </div>
+                    <div class="token-stat">
+                        <span class="text-muted text-xs">Script Path</span>
+                        <span class="font-mono">@PrettyOrDash(draft.ScriptPath)</span>
+                    </div>
+                </div>
+
+                <div class="form-row mt-4">
+                    <div class="form-group">
+                        <label class="form-label text-xs text-muted">Invocation Inputs</label>
+                        <div class="output-box font-mono text-xs">@PrettyJson(draft.InvocationInputsJson)</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label text-xs text-muted">Input Schema</label>
+                        <div class="output-box font-mono text-xs">@PrettyJson(draft.DraftInputsJson)</div>
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(draft.AllowedRootsJson))
+                {
+                    <div class="form-group mt-4">
+                        <label class="form-label text-xs text-muted">Allowed Roots</label>
+                        <div class="output-box font-mono text-xs">@PrettyJson(draft.AllowedRootsJson)</div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(draft.Script))
+                {
+                    <div class="form-group mt-4">
+                        <label class="form-label text-xs text-muted">Script</label>
+                        <div class="output-box font-mono text-xs">@draft.Script</div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(draft.ApprovalEvidence))
+                {
+                    <div class="form-group mt-4">
+                        <label class="form-label text-xs text-muted">Approval Evidence</label>
+                        <div class="output-box text-xs">@draft.ApprovalEvidence</div>
+                    </div>
+                }
+
+                <div class="feedback-row mt-4">
+                    <button class="btn btn-ghost btn-sm" @onclick='() => Nav.NavigateTo("/tasks")'>
+                        <i class="bi bi-eye"></i> Open Tasks
+                    </button>
+                    <button class="btn btn-ghost btn-sm text-error" @onclick="() => RejectDraftAsync(draft.TaskId)" disabled="@(busyDraftTaskId == draft.TaskId)">
+                        <i class="bi bi-x-lg"></i> Reject
+                    </button>
+                    <button class="btn btn-primary btn-sm" @onclick="() => ApproveDraftAsync(draft.TaskId)" disabled="@(busyDraftTaskId == draft.TaskId)">
+                        <i class="bi bi-check-lg"></i> Approve
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@if (!capabilities.Any())
+{
+    <div class="card card-pad empty-state">
+        <div class="empty-icon"><i class="bi bi-collection"></i></div>
+        <div class="empty-title">No capabilities available</div>
+        <div class="empty-desc">Local capabilities are seeded automatically at startup, so this usually means the library has not loaded yet.</div>
+        <button class="btn btn-primary mt-4" @onclick="RefreshAsync">
+            <i class="bi bi-arrow-clockwise"></i> Reload
+        </button>
+    </div>
+}
+else
+{
+    <div class="learning-kpi-row">
+        <div class="learning-kpi">
+            <div class="learning-kpi__val">@capabilities.Count</div>
+            <div class="learning-kpi__lbl">Total Capabilities</div>
+        </div>
+        <div class="learning-kpi">
+            <div class="learning-kpi__val">@capabilities.Count(c => c.ExecutionType == LocalCapabilityExecutionType.BuiltIn)</div>
+            <div class="learning-kpi__lbl">Built In</div>
+        </div>
+        <div class="learning-kpi">
+            <div class="learning-kpi__val">@capabilities.Count(c => c.IsGenerated)</div>
+            <div class="learning-kpi__lbl">Generated</div>
+        </div>
+        <div class="learning-kpi">
+            <div class="learning-kpi__val">@capabilities.Count(c => c.RequiresApproval)</div>
+            <div class="learning-kpi__lbl">Approval Gated</div>
+        </div>
+        <div class="learning-kpi">
+            <div class="learning-kpi__val">@capabilities.Count(c => c.IsActive)</div>
+            <div class="learning-kpi__lbl">Active</div>
+        </div>
+        <div class="learning-kpi">
+            <div class="learning-kpi__val">@capabilities.Count(c => c.LastUsedAt.HasValue)</div>
+            <div class="learning-kpi__lbl">Recently Used</div>
+        </div>
+    </div>
+
+    <div class="card card-pad mt-4">
+        <div class="form-row">
+            <div class="form-group">
+                <label class="form-label">Search</label>
+                <input class="form-input" @bind="searchQuery" @bind:event="oninput" placeholder="Search by name, description, handler, or script path..." />
+            </div>
+            <div class="form-group">
+                <label class="form-label">Category</label>
+                <div class="filter-bar" style="padding:0; border:0; background:transparent;">
+                    <button class="chip @(categoryFilter == null ? "on" : "")" @onclick="() => SetCategoryFilter(null)">All</button>
+                    @foreach (var category in Enum.GetValues<LocalCapabilityCategory>())
+                    {
+                        <button class="chip @(categoryFilter == category ? "on" : "")" @onclick="() => SetCategoryFilter(category)">
+                            @category
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (!FilteredCapabilities.Any())
+    {
+        <div class="card card-pad empty-state mt-4">
+            <div class="empty-icon"><i class="bi bi-filter"></i></div>
+            <div class="empty-title">No matching capabilities</div>
+            <div class="empty-desc">Try clearing the search or category filter.</div>
+        </div>
+    }
+    else
+    {
+        @if (BuiltInCapabilities.Any())
+        {
+            <div class="section-header mt-4">
+                <i class="bi bi-cpu text-accent"></i>
+                <span>Built In</span>
+                <span class="badge badge-accent ml-2">@BuiltInCapabilities.Count()</span>
+            </div>
+
+            <div class="eval-grid">
+                @foreach (var capability in BuiltInCapabilities)
+                {
+                    <div class="card card-pad eval-card">
+                        <div class="eval-card__head">
+                            <div>
+                                <div class="section-head"><i class="bi @CapabilityIcon(capability)"></i> @capability.DisplayName</div>
+                                <div class="text-xs text-muted font-mono mt-1">@capability.Name</div>
+                                @if (!string.IsNullOrWhiteSpace(capability.Description))
+                                {
+                                    <div class="text-sm text-secondary mt-2">@capability.Description</div>
+                                }
+                            </div>
+                            <div style="display:flex;gap:var(--s2);flex-wrap:wrap;justify-content:flex-end;align-items:flex-start;">
+                                <span class="tag">@capability.Category</span>
+                                <span class="badge badge-accent">Built In</span>
+                                @if (capability.RequiresApproval)
+                                {
+                                    <span class="badge badge-warning">Approval</span>
+                                }
+                                @if (!capability.IsActive)
+                                {
+                                    <span class="badge badge-error">Inactive</span>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="token-stats mt-4">
+                            <div class="token-stat">
+                                <span class="text-muted text-xs">Execution</span>
+                                <span>@capability.ExecutionType</span>
+                            </div>
+                            <div class="token-stat">
+                                <span class="text-muted text-xs">Handler</span>
+                                <span class="font-mono">@PrettyOrDash(capability.HandlerKey)</span>
+                            </div>
+                            <div class="token-stat">
+                                <span class="text-muted text-xs">Version</span>
+                                <span>@capability.Version</span>
+                            </div>
+                            <div class="token-stat">
+                                <span class="text-muted text-xs">Created</span>
+                                <span>@capability.CreatedAt.ToString("dd MMM yyyy")</span>
+                            </div>
+                        </div>
+
+                        <div class="form-row mt-4">
+                            <div class="form-group">
+                                <label class="form-label text-xs text-muted">Input Schema</label>
+                                <div class="output-box font-mono text-xs">@PrettyJson(capability.InputSchemaJson)</div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label text-xs text-muted">Output Schema</label>
+                                <div class="output-box font-mono text-xs">@PrettyJson(capability.OutputSchemaJson)</div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        @if (GeneratedCapabilities.Any())
+        {
+            <div class="section-header mt-6">
+                <i class="bi bi-file-code text-accent2"></i>
+                <span>Generated Local Capabilities</span>
+                <span class="badge badge-warning ml-2">@GeneratedCapabilities.Count()</span>
+            </div>
+
+            <div class="eval-grid">
+                @foreach (var capability in GeneratedCapabilities)
+                {
+                    <div class="card card-pad eval-card">
+                        <div class="eval-card__head">
+                            <div>
+                                <div class="section-head"><i class="bi @CapabilityIcon(capability)"></i> @capability.DisplayName</div>
+                                <div class="text-xs text-muted font-mono mt-1">@capability.Name</div>
+                                @if (!string.IsNullOrWhiteSpace(capability.Description))
+                                {
+                                    <div class="text-sm text-secondary mt-2">@capability.Description</div>
+                                }
+                            </div>
+                            <div style="display:flex;gap:var(--s2);flex-wrap:wrap;justify-content:flex-end;align-items:flex-start;">
+                                <span class="tag">@capability.Category</span>
+                                <span class="badge badge-warning">Generated</span>
+                                @if (capability.RequiresApproval)
+                                {
+                                    <span class="badge badge-warning">Approval</span>
+                                }
+                                @if (!capability.IsActive)
+                                {
+                                    <span class="badge badge-error">Inactive</span>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="token-stats mt-4">
+                            <div class="token-stat">
+                                <span class="text-muted text-xs">Execution</span>
+                                <span>@capability.ExecutionType</span>
+                            </div>
+                            <div class="token-stat">
+                                <span class="text-muted text-xs">Script Path</span>
+                                <span class="font-mono">@PrettyOrDash(capability.ScriptPath)</span>
+                            </div>
+                            <div class="token-stat">
+                                <span class="text-muted text-xs">Version</span>
+                                <span>@capability.Version</span>
+                            </div>
+                            <div class="token-stat">
+                                <span class="text-muted text-xs">Last Used</span>
+                                <span>@(capability.LastUsedAt.HasValue ? capability.LastUsedAt.Value.ToLocalTime().ToString("dd MMM HH:mm") : "-")</span>
+                            </div>
+                        </div>
+
+                        <div class="form-row mt-4">
+                            <div class="form-group">
+                                <label class="form-label text-xs text-muted">Input Schema</label>
+                                <div class="output-box font-mono text-xs">@PrettyJson(capability.InputSchemaJson)</div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label text-xs text-muted">Output Schema</label>
+                                <div class="output-box font-mono text-xs">@PrettyJson(capability.OutputSchemaJson)</div>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(capability.AllowedRootsJson))
+                        {
+                            <div class="form-group mt-4">
+                                <label class="form-label text-xs text-muted">Allowed Roots</label>
+                                <div class="output-box font-mono text-xs">@PrettyJson(capability.AllowedRootsJson)</div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    }
+}
+
+@code {
+    private List<LocalCapability> capabilities = new();
+    private List<PendingLocalCapabilityDraft> pendingDrafts = new();
+    private string searchQuery = "";
+    private LocalCapabilityCategory? categoryFilter;
+    private string? busyDraftTaskId;
+
+    private IEnumerable<LocalCapability> FilteredCapabilities => capabilities
+        .Where(capability => categoryFilter == null || capability.Category == categoryFilter)
+        .Where(capability =>
+            string.IsNullOrWhiteSpace(searchQuery)
+            || capability.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+            || capability.DisplayName.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+            || capability.Description.Contains(searchQuery, StringComparison.OrdinalIgnoreCase)
+            || (capability.HandlerKey?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ?? false)
+            || (capability.ScriptPath?.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    private IEnumerable<LocalCapability> BuiltInCapabilities => FilteredCapabilities
+        .Where(capability => capability.ExecutionType == LocalCapabilityExecutionType.BuiltIn);
+
+    private IEnumerable<LocalCapability> GeneratedCapabilities => FilteredCapabilities
+        .Where(capability => capability.IsGenerated || capability.ExecutionType != LocalCapabilityExecutionType.BuiltIn);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        pendingDrafts = await PendingDraftService.GetPendingDraftsAsync();
+        capabilities = await CapabilityService.GetAllAsync();
+    }
+
+    private async Task ApproveDraftAsync(string taskId)
+    {
+        busyDraftTaskId = taskId;
+        try
+        {
+            await TaskService.ApproveTaskAsync(taskId);
+            await RefreshAsync();
+        }
+        finally
+        {
+            busyDraftTaskId = null;
+        }
+    }
+
+    private async Task RejectDraftAsync(string taskId)
+    {
+        busyDraftTaskId = taskId;
+        try
+        {
+            await TaskService.CancelTaskAsync(taskId);
+            await RefreshAsync();
+        }
+        finally
+        {
+            busyDraftTaskId = null;
+        }
+    }
+
+    private void SetCategoryFilter(LocalCapabilityCategory? category)
+    {
+        categoryFilter = category;
+    }
+
+    private static string PrettyOrDash(string? value)
+        => string.IsNullOrWhiteSpace(value) ? "-" : value;
+
+    private static string PrettyJson(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return string.Empty;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions(JsonSerializerDefaults.Web)
+            {
+                WriteIndented = true
+            });
+        }
+        catch
+        {
+            return json;
+        }
+    }
+
+    private static string CapabilityIcon(LocalCapability capability) => capability.ExecutionType switch
+    {
+        LocalCapabilityExecutionType.BuiltIn => capability.Category switch
+        {
+            LocalCapabilityCategory.Read => "bi-eye",
+            LocalCapabilityCategory.Write => "bi-pencil-square",
+            LocalCapabilityCategory.Query => "bi-search",
+            LocalCapabilityCategory.Destructive => "bi-exclamation-triangle",
+            _ => "bi-cpu"
+        },
+        _ => "bi-file-code"
+    };
+}

@@ -1,59 +1,100 @@
 @* Agent summary card for the grid view *@
 
-<NavLink class="@($"agent-card s-{StatusClass}")" href="@($"/agents/{Agent.Id}")">
-    <div class="agent-card-header">
-        <div class="agent-avatar" style="background:@TypeBg; color:@TypeColor; border:1px solid @TypeBorder;">
-            <i class="bi @TypeIcon"></i>
-        </div>
-        <div class="agent-info">
-            <div class="agent-name">@Agent.Name</div>
-            <div class="agent-host">@Agent.HostMachine</div>
-        </div>
-        <StatusBadge Status="@Agent.Status" />
-    </div>
-
-    <div class="agent-task">
-        <i class="bi bi-arrow-right-circle"></i>
-        <span class="truncate">@Agent.CurrentTask</span>
-    </div>
-
-    @if (Agent.Status != AgentStatus.Offline)
-    {
-        <div class="agent-bars">
-            <div class="bar-row">
-                <span class="bar-label">CPU</span>
-                <div class="bar-track">
-                    <div class="bar-fill @CpuClass" style="width:@Agent.CpuUsage.ToString("F0")%"></div>
+<NavLink class="@($"agent-card agent-card--crew s-{StatusClass}")" href="@($"/agents/{Agent.Id}")">
+    <div class="agent-card-grid">
+        <div class="agent-card-header">
+            <div class="agent-avatar-shell">
+                <div class="agent-avatar" style="background:@TypeBg; color:@TypeColor; border:1px solid @TypeBorder;">
+                    <span class="agent-avatar-initials">@Crew.AvatarInitials</span>
                 </div>
-                <span class="bar-val">@Agent.CpuUsage.ToString("F0")%</span>
+                <span class="agent-avatar-rank">@Crew.AvatarRank</span>
             </div>
-            <div class="bar-row">
-                <span class="bar-label">MEM</span>
-                <div class="bar-track">
-                    <div class="bar-fill mem" style="width:@MemPct.ToString("F0")%"></div>
+            <div class="agent-info">
+                <div class="agent-callsign-row">
+                    <span class="agent-callsign">@Crew.Callsign</span>
+                    <span class="agent-name">@Agent.Name</span>
                 </div>
-                <span class="bar-val">@Agent.MemoryUsageMB.ToString("F0")M</span>
+                <div class="agent-title">@Crew.Title</div>
+                <div class="agent-host">@Agent.HostMachine</div>
+            </div>
+            <div class="agent-command-state">
+                <StatusBadge Status="@Agent.Status" />
             </div>
         </div>
-    }
 
-    <div class="agent-footer">
-        <div class="agent-stats">
-            <div class="agent-stat text-success">
-                <i class="bi bi-check2"></i>
-                <span class="n">@Agent.TasksCompleted</span>
+        <div class="agent-mission">
+            <div class="agent-mission-kicker">Current mission</div>
+            <div class="agent-mission-text">@Crew.Mission</div>
+            <div class="agent-mission-context">@Crew.MissionContext</div>
+        </div>
+
+        <div class="@($"agent-presence-panel agent-presence-panel--{Crew.PresenceTone}")">
+            <div>
+                <div class="agent-presence-panel__label">Condition</div>
+                <div class="agent-presence-panel__value">@Crew.PresenceLabel</div>
             </div>
-            <div class="agent-stat text-error">
-                <i class="bi bi-x"></i>
-                <span class="n">@Agent.TasksFailed</span>
+            <div class="agent-presence-panel__summary">@Crew.PresenceSummary</div>
+        </div>
+
+        @if (Agent.Status != AgentStatus.Offline)
+        {
+            <div class="agent-bars">
+                <div class="bar-row">
+                    <span class="bar-label">CPU</span>
+                    <div class="bar-track">
+                        <div class="bar-fill @CpuClass" style="width:@Agent.CpuUsage.ToString("F0")%"></div>
+                    </div>
+                    <span class="bar-val">@Agent.CpuUsage.ToString("F0")%</span>
+                </div>
+                <div class="bar-row">
+                    <span class="bar-label">MEM</span>
+                    <div class="bar-track">
+                        <div class="bar-fill mem" style="width:@MemPct.ToString("F0")%"></div>
+                    </div>
+                    <span class="bar-val">@Agent.MemoryUsageMB.ToString("F0")M</span>
+                </div>
+            </div>
+        }
+
+        <div class="agent-telemetry">
+            <div class="agent-telemetry__item">
+                <span class="agent-telemetry__label">Completed</span>
+                <strong>@Agent.TasksCompleted</strong>
+            </div>
+            <div class="agent-telemetry__item">
+                <span class="agent-telemetry__label">Failed</span>
+                <strong>@Agent.TasksFailed</strong>
+            </div>
+            <div class="agent-telemetry__item">
+                <span class="agent-telemetry__label">Trust</span>
+                <strong>@Crew.ConfidenceLabel</strong>
+            </div>
+            <div class="agent-telemetry__item">
+                <span class="agent-telemetry__label">Load</span>
+                <strong>@Crew.LoadLabel</strong>
             </div>
         </div>
-        <span class="text-xs text-muted">Uptime @Agent.UptimeFormatted</span>
+
+        <div class="agent-footer">
+            <div class="agent-stats">
+                <div class="agent-stat">
+                    <i class="bi @TypeIcon"></i>
+                    <span class="n">@Agent.Type</span>
+                </div>
+                <div class="agent-stat">
+                    <i class="bi bi-clock-history"></i>
+                    <span class="n">Uptime @Agent.UptimeFormatted</span>
+                </div>
+            </div>
+            <span class="text-xs text-muted">Last seen @Crew.LastSeenLabel</span>
+        </div>
     </div>
 </NavLink>
 
 @code {
     [Parameter, EditorRequired] public Agent Agent { get; set; } = null!;
+
+    private AgentCrewProfile Crew => AgentCrewPresenter.Build(Agent);
 
     private string StatusClass => Agent.Status switch
     {
@@ -72,12 +113,12 @@
 
     private (string icon, string bg, string color, string border) TypeStyle => Agent.Type switch
     {
-        AgentType.DataSync      => ("bi-arrow-repeat",      "rgba(6,182,212,0.12)",   "#06b6d4", "rgba(6,182,212,0.25)"),
-        AgentType.Reporting     => ("bi-file-bar-graph",    "rgba(167,139,250,0.12)", "#a78bfa", "rgba(167,139,250,0.25)"),
-        AgentType.Integration   => ("bi-plugin",            "rgba(251,146,60,0.12)",  "#fb923c", "rgba(251,146,60,0.25)"),
-        AgentType.Notification  => ("bi-bell",              "rgba(250,204,21,0.12)",  "#facc15", "rgba(250,204,21,0.25)"),
-        AgentType.Processing    => ("bi-cpu",               "rgba(96,165,250,0.12)",  "#60a5fa", "rgba(96,165,250,0.25)"),
-        AgentType.Custom        => ("bi-braces",            "rgba(168,162,158,0.12)", "#a8a29e", "rgba(168,162,158,0.25)"),
+        AgentType.DataSync      => ("bi-arrow-repeat",      "linear-gradient(135deg, rgba(6,182,212,0.18), rgba(14,165,233,0.06))",   "#6ee7f9", "rgba(6,182,212,0.25)"),
+        AgentType.Reporting     => ("bi-file-bar-graph",    "linear-gradient(135deg, rgba(167,139,250,0.18), rgba(124,58,237,0.06))", "#c4b5fd", "rgba(167,139,250,0.25)"),
+        AgentType.Integration   => ("bi-plugin",            "linear-gradient(135deg, rgba(251,146,60,0.18), rgba(249,115,22,0.06))",  "#fdba74", "rgba(251,146,60,0.25)"),
+        AgentType.Notification  => ("bi-bell",              "linear-gradient(135deg, rgba(250,204,21,0.18), rgba(234,179,8,0.06))",  "#fde68a", "rgba(250,204,21,0.25)"),
+        AgentType.Processing    => ("bi-cpu",               "linear-gradient(135deg, rgba(96,165,250,0.18), rgba(59,130,246,0.06))",  "#93c5fd", "rgba(96,165,250,0.25)"),
+        AgentType.Custom        => ("bi-braces",            "linear-gradient(135deg, rgba(168,162,158,0.18), rgba(120,113,108,0.06))", "#d6d3d1", "rgba(168,162,158,0.25)"),
         _ => ("bi-robot", "rgba(100,116,139,0.12)", "#94a3b8", "rgba(100,116,139,0.2)")
     };
 

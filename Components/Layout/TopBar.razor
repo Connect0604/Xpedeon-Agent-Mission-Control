@@ -34,6 +34,7 @@
         var u when u.Contains("/agents/")        => "Agent Detail",
         var u when u.EndsWith("/agents")         => "Agents",
         var u when u.EndsWith("/tasks")          => "Tasks",
+        var u when u.EndsWith("/outputs")        => "Outputs",
         var u when u.EndsWith("/logs")           => "Logs",
         var u when u.EndsWith("/providers")      => "LLM Providers",
         var u when u.EndsWith("/templates")      => "Agent Templates",

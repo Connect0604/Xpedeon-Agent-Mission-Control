@@ -181,6 +181,10 @@ else
                         <span class="text-sm">@(agent.RequiresApproval ? "Required" : "Auto")</span>
                     </div>
                     <div class="config-item">
+                        <span class="text-muted text-xs">Local Automation</span>
+                        <span class="text-sm">@(agent.LocalAutomationEnabled ? "Enabled" : "Disabled")</span>
+                    </div>
+                    <div class="config-item">
                         <span class="text-muted text-xs">Circuit Breaker</span>
                         <span class="text-sm @(agent.IsCircuitOpen ? "text-error" : "")">
                             @(agent.IsCircuitOpen ? "OPEN" : agent.CircuitBreakerEnabled ? $"Armed ({agent.CircuitBreakerFailureThreshold})" : "Off")
@@ -221,6 +225,21 @@ else
                             @foreach (var mcp in agent.MCPServers.Where(m => m.IsEnabled))
                             {
                                 <span class="tag">@(mcp.MCPServer?.Name ?? mcp.MCPServerId)</span>
+                            }
+                        </div>
+                    </div>
+                }
+
+                @if (agent.LocalAutomationEnabled)
+                {
+                    <div class="mt-4">
+                        <div class="text-muted text-xs mb-2">Local Automation Policy</div>
+                        <div style="display:flex;flex-wrap:wrap;gap:var(--s1);">
+                            <span class="tag">@(agent.AllowPowerShellScripts ? "PowerShell allowed" : "PowerShell blocked")</span>
+                            <span class="tag">@(agent.AllowDestructiveActions ? "Destructive actions allowed" : "Destructive actions approval-gated")</span>
+                            @foreach (var root in AllowedRoots(agent))
+                            {
+                                <span class="tag">@root</span>
                             }
                         </div>
                     </div>
@@ -408,6 +427,61 @@ else
                     <div class="form-group">
                         <label class="form-label text-muted text-xs">Execution Trace</label>
                         <div class="output-box font-mono text-xs">@selectedTask.ExecutionTrace</div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(selectedTask.LocalActionPlanJson))
+                {
+                    <div class="form-group">
+                        <label class="form-label text-muted text-xs">Local Action Plan</label>
+                        <div class="output-box font-mono text-xs">@PrettyJson(selectedTask.LocalActionPlanJson)</div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(selectedTask.LocalActionResultJson))
+                {
+                    <div class="form-group">
+                        <label class="form-label text-muted text-xs">Local Action Result</label>
+                        <div class="output-box font-mono text-xs">@PrettyJson(selectedTask.LocalActionResultJson)</div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(selectedTask.LocalCapabilityId))
+                {
+                    <div class="token-stats">
+                        <div class="token-stat">
+                            <span class="text-muted text-xs">Local Capability ID</span>
+                            <span class="font-mono">@selectedTask.LocalCapabilityId</span>
+                        </div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(selectedTask.LocalCapabilityDraftJson))
+                {
+                    <div class="form-group">
+                        <label class="form-label text-muted text-xs">Local Capability Draft</label>
+                        <div class="output-box font-mono text-xs">@PrettyJson(selectedTask.LocalCapabilityDraftJson)</div>
+                    </div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(selectedTask.LocalCapabilityExecutionJson))
+                {
+                    <div class="form-group">
+                        <label class="form-label text-muted text-xs">Local Capability Execution</label>
+                        <div class="output-box font-mono text-xs">@PrettyJson(selectedTask.LocalCapabilityExecutionJson)</div>
+                    </div>
+                }
+
+                @if (GetPathList(selectedTask.TouchedPathsJson).Any())
+                {
+                    <div class="form-group">
+                        <label class="form-label text-muted text-xs">Touched Paths</label>
+                        <div style="display:flex;flex-wrap:wrap;gap:var(--s1);">
+                            @foreach (var path in GetPathList(selectedTask.TouchedPathsJson))
+                            {
+                                <span class="tag">@path</span>
+                            }
+                        </div>
                     </div>
                 }
 
@@ -1166,6 +1240,55 @@ else
         catch
         {
             return new List<string>();
+        }
+    }
+
+    private static List<string> GetPathList(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return new List<string>();
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
+        }
+        catch
+        {
+            return new List<string>();
+        }
+    }
+
+    private static List<string> AllowedRoots(Agent? currentAgent)
+    {
+        if (string.IsNullOrWhiteSpace(currentAgent?.AllowedLocalRootsJson))
+            return new List<string>();
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<string>>(currentAgent.AllowedLocalRootsJson) ?? new List<string>();
+        }
+        catch
+        {
+            return new List<string>();
+        }
+    }
+
+    private static string PrettyJson(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return string.Empty;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions(JsonSerializerDefaults.Web)
+            {
+                WriteIndented = true
+            });
+        }
+        catch
+        {
+            return json;
         }
     }
 
