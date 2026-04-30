@@ -49,6 +49,9 @@ public class AppDbContext : DbContext
     public DbSet<CostEvent> CostEvents => Set<CostEvent>();
     public DbSet<CostAlert> CostAlerts => Set<CostAlert>();
     public DbSet<BudgetOverride> BudgetOverrides => Set<BudgetOverride>();
+    public DbSet<RateLimitPolicy> RateLimitPolicies => Set<RateLimitPolicy>();
+    public DbSet<RateLimitEvent> RateLimitEvents => Set<RateLimitEvent>();
+    public DbSet<RateLimitedTaskQueue> RateLimitedTaskQueues => Set<RateLimitedTaskQueue>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

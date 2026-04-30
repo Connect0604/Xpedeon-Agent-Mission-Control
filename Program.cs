@@ -45,6 +45,7 @@ builder.Services.AddScoped<ValidationService>();
 builder.Services.AddScoped<HealthCheckService>();
 builder.Services.AddScoped<AuditService>();
 builder.Services.AddScoped<CostTrackingService>();
+builder.Services.AddScoped<RateLimitingService>();
 builder.Services.AddHostedService<BackgroundHealthCheckService>();
 builder.Services.AddHttpContextAccessor();
 
@@ -157,6 +158,9 @@ app.UseStaticFiles();
 
 // Validation middleware for request size and JSON validation
 app.UseValidationMiddleware();
+
+// Rate limiting middleware
+app.UseRateLimitingMiddleware();
 
 app.UseAntiforgery();
 
