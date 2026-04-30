@@ -42,6 +42,8 @@ else if (dataProtectionConfig.KeyStorageType?.Equals("Azure", StringComparison.O
 builder.Services.AddScoped<SecretManager>();
 builder.Services.AddScoped<SecretEncryptionService>();
 builder.Services.AddScoped<ValidationService>();
+builder.Services.AddScoped<HealthCheckService>();
+builder.Services.AddHostedService<BackgroundHealthCheckService>();
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
@@ -157,6 +159,53 @@ app.UseAntiforgery();
 
 app.MapRazorComponents<XpedeonAgentMissionControl.Components.App>()
     .AddInteractiveServerRenderMode();
+
+// Health check endpoint (public, no auth required)
+app.MapGet("/health", async (HttpContext context, HealthCheckService healthService) =>
+{
+    var report = await healthService.GetHealthAsync();
+    var statusCode = report.Status switch
+    {
+        HealthStatus.Healthy => StatusCodes.Status200OK,
+        HealthStatus.Degraded => StatusCodes.Status200OK, // Still 200, but consumer sees "degraded"
+        HealthStatus.Unhealthy => StatusCodes.Status503ServiceUnavailable,
+        _ => StatusCodes.Status500InternalServerError
+    };
+
+    context.Response.StatusCode = statusCode;
+    await context.Response.WriteAsJsonAsync(report);
+})
+.WithName("GetHealth")
+.WithOpenApi()
+.Produces(200, typeof(HealthReport), "application/json")
+.Produces(503, typeof(HealthReport), "application/json")
+.AllowAnonymous()
+.WithSummary("Get system health status");
+
+// Detailed health endpoint (requires auth for sensitive details)
+app.MapGet("/health/detailed", async (HttpContext context, HealthCheckService healthService) =>
+{
+    var report = await healthService.GetHealthAsync(forceRefresh: true);
+    var statusCode = report.Status == HealthStatus.Healthy ? 200 : 503;
+    context.Response.StatusCode = statusCode;
+    await context.Response.WriteAsJsonAsync(new
+    {
+        report.Status,
+        report.StatusString,
+        report.CheckedAt,
+        report.Components,
+        Summary = new
+        {
+            report.HealthyCount,
+            report.DegradedCount,
+            report.UnhealthyCount
+        }
+    });
+})
+.WithName("GetDetailedHealth")
+.WithOpenApi()
+.AllowAnonymous()
+.WithSummary("Get detailed system health with component breakdown");
 
 // SignalR hub endpoint
 app.MapHub<AgentHub>("/hubs/agent");

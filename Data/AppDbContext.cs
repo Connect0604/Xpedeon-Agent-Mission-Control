@@ -43,6 +43,7 @@ public class AppDbContext : DbContext
     public DbSet<WorkflowStepRun> WorkflowStepRuns => Set<WorkflowStepRun>();
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<EncryptedConfigValue> EncryptedConfigValues => Set<EncryptedConfigValue>();
+    public DbSet<HealthCheckHistory> HealthCheckHistories => Set<HealthCheckHistory>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
