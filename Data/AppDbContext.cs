@@ -52,6 +52,10 @@ public class AppDbContext : DbContext
     public DbSet<RateLimitPolicy> RateLimitPolicies => Set<RateLimitPolicy>();
     public DbSet<RateLimitEvent> RateLimitEvents => Set<RateLimitEvent>();
     public DbSet<RateLimitedTaskQueue> RateLimitedTaskQueues => Set<RateLimitedTaskQueue>();
+    public DbSet<AlertNotificationConfig> AlertNotificationConfigs => Set<AlertNotificationConfig>();
+    public DbSet<AlertEscalationRule> AlertEscalationRules => Set<AlertEscalationRule>();
+    public DbSet<AlertNotificationHistory> AlertNotificationHistories => Set<AlertNotificationHistory>();
+    public DbSet<AlertAcknowledgment> AlertAcknowledgments => Set<AlertAcknowledgment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

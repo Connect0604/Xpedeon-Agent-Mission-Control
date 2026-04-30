@@ -47,7 +47,9 @@ builder.Services.AddScoped<AuditService>();
 builder.Services.AddScoped<CostTrackingService>();
 builder.Services.AddScoped<RateLimitingService>();
 builder.Services.AddScoped<TokenBudgetEnforcementService>();
+builder.Services.AddScoped<AlertNotificationService>();
 builder.Services.AddHostedService<BackgroundHealthCheckService>();
+builder.Services.AddHostedService<BackgroundAlertProcessorService>();
 builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddRazorComponents()
