@@ -15,6 +15,33 @@ var hermesOpenClawConfig = builder.Configuration
     .Get<HermesOpenClawConfig>() ?? new HermesOpenClawConfig();
 builder.Services.AddSingleton(hermesOpenClawConfig);
 
+// Data Protection configuration
+var dataProtectionConfig = builder.Configuration
+    .GetSection("DataProtection")
+    .Get<DataProtectionConfig>() ?? new DataProtectionConfig();
+builder.Services.AddSingleton(dataProtectionConfig);
+
+// Configure Data Protection API for encryption
+var dataProtectionBuilder = builder.Services.AddDataProtection()
+    .SetApplicationName(dataProtectionConfig.ApplicationName);
+
+// Store keys based on platform
+if (dataProtectionConfig.KeyStorageType?.Equals("Linux", StringComparison.OrdinalIgnoreCase) == true)
+{
+    var keyPath = dataProtectionConfig.KeyStoragePath ?? "/etc/xpedeon/keys/";
+    Directory.CreateDirectory(keyPath);
+    dataProtectionBuilder.PersistKeysToFileSystem(new System.IO.DirectoryInfo(keyPath));
+}
+else if (dataProtectionConfig.KeyStorageType?.Equals("Azure", StringComparison.OrdinalIgnoreCase) == true)
+{
+    // Azure Key Vault setup would go here (requires Azure SDK)
+    // For now, fall back to default (Windows DPAPI)
+}
+// Default: Windows DPAPI (automatic, no configuration needed)
+
+builder.Services.AddScoped<SecretManager>();
+builder.Services.AddScoped<SecretEncryptionService>();
+
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
@@ -96,12 +123,21 @@ try
             // Apply all pending migrations
             await db.Database.MigrateAsync();
         }
+
+        // Encrypt any unencrypted secrets
+        var encryptionService = scope.ServiceProvider.GetRequiredService<SecretEncryptionService>();
+        var encryptedCount = await encryptionService.EncryptUnencryptedSecretsAsync();
+        if (encryptedCount > 0)
+        {
+            var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+            logger.LogWarning("Encrypted {Count} providers with unencrypted secrets on startup", encryptedCount);
+        }
     }
 }
 catch (Exception ex)
 {
     var logger = app.Services.GetRequiredService<ILogger<Program>>();
-    logger.LogError(ex, "Failed to apply database migrations on startup. The application will attempt to continue, but database access may fail.");
+    logger.LogError(ex, "Failed to apply database migrations or encrypt secrets on startup. The application will attempt to continue, but database access may fail.");
 }
 
 if (!app.Environment.IsDevelopment())
