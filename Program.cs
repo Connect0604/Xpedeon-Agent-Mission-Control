@@ -43,7 +43,9 @@ builder.Services.AddScoped<SecretManager>();
 builder.Services.AddScoped<SecretEncryptionService>();
 builder.Services.AddScoped<ValidationService>();
 builder.Services.AddScoped<HealthCheckService>();
+builder.Services.AddScoped<AuditService>();
 builder.Services.AddHostedService<BackgroundHealthCheckService>();
+builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();

@@ -44,6 +44,7 @@ public class AppDbContext : DbContext
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<EncryptedConfigValue> EncryptedConfigValues => Set<EncryptedConfigValue>();
     public DbSet<HealthCheckHistory> HealthCheckHistories => Set<HealthCheckHistory>();
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
