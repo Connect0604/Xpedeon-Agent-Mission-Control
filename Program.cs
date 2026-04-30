@@ -84,6 +84,25 @@ builder.Services.AddHttpClient();
 
 var app = builder.Build();
 
+// Apply EF Core migrations on startup
+try
+{
+    using (var scope = app.Services.CreateScope())
+    {
+        var dbContextFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+        using (var db = await dbContextFactory.CreateDbContextAsync())
+        {
+            // Apply all pending migrations
+            await db.Database.MigrateAsync();
+        }
+    }
+}
+catch (Exception ex)
+{
+    var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    logger.LogError(ex, "Failed to apply database migrations on startup. The application will attempt to continue, but database access may fail.");
+}
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
