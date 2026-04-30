@@ -41,6 +41,7 @@ else if (dataProtectionConfig.KeyStorageType?.Equals("Azure", StringComparison.O
 
 builder.Services.AddScoped<SecretManager>();
 builder.Services.AddScoped<SecretEncryptionService>();
+builder.Services.AddScoped<ValidationService>();
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
@@ -148,6 +149,10 @@ if (!app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();
+
+// Validation middleware for request size and JSON validation
+app.UseValidationMiddleware();
+
 app.UseAntiforgery();
 
 app.MapRazorComponents<XpedeonAgentMissionControl.Components.App>()
