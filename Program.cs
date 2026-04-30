@@ -51,6 +51,7 @@ builder.Services.AddScoped<AgentService>();
 builder.Services.AddScoped<TaskService>();
 builder.Services.AddScoped<LLMProviderService>();
 builder.Services.AddScoped<TemplateService>();
+builder.Services.AddScoped<ApiKeyService>();
 builder.Services.AddScoped<SkillService>();
 builder.Services.AddScoped<EvaluationService>();
 builder.Services.AddScoped<SwarmService>();

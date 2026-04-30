@@ -41,6 +41,7 @@ public class AppDbContext : DbContext
     public DbSet<AgentWorkflowStep> WorkflowSteps => Set<AgentWorkflowStep>();
     public DbSet<WorkflowRun> WorkflowRuns => Set<WorkflowRun>();
     public DbSet<WorkflowStepRun> WorkflowStepRuns => Set<WorkflowStepRun>();
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
