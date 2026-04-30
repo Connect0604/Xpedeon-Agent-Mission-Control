@@ -44,6 +44,7 @@ builder.Services.AddScoped<SecretEncryptionService>();
 builder.Services.AddScoped<ValidationService>();
 builder.Services.AddScoped<HealthCheckService>();
 builder.Services.AddScoped<AuditService>();
+builder.Services.AddScoped<CostTrackingService>();
 builder.Services.AddHostedService<BackgroundHealthCheckService>();
 builder.Services.AddHttpContextAccessor();
 

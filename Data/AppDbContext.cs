@@ -45,6 +45,10 @@ public class AppDbContext : DbContext
     public DbSet<EncryptedConfigValue> EncryptedConfigValues => Set<EncryptedConfigValue>();
     public DbSet<HealthCheckHistory> HealthCheckHistories => Set<HealthCheckHistory>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<AgentBudget> AgentBudgets => Set<AgentBudget>();
+    public DbSet<CostEvent> CostEvents => Set<CostEvent>();
+    public DbSet<CostAlert> CostAlerts => Set<CostAlert>();
+    public DbSet<BudgetOverride> BudgetOverrides => Set<BudgetOverride>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
