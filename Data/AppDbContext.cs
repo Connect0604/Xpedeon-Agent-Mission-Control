@@ -56,6 +56,10 @@ public class AppDbContext : DbContext
     public DbSet<AlertEscalationRule> AlertEscalationRules => Set<AlertEscalationRule>();
     public DbSet<AlertNotificationHistory> AlertNotificationHistories => Set<AlertNotificationHistory>();
     public DbSet<AlertAcknowledgment> AlertAcknowledgments => Set<AlertAcknowledgment>();
+    public DbSet<RetryPolicy> RetryPolicies => Set<RetryPolicy>();
+    public DbSet<TaskExecutionAttempt> TaskExecutionAttempts => Set<TaskExecutionAttempt>();
+    public DbSet<CircuitBreakerState> CircuitBreakerStates => Set<CircuitBreakerState>();
+    public DbSet<TaskCheckpoint> TaskCheckpoints => Set<TaskCheckpoint>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
