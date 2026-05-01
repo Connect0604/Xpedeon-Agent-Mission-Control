@@ -107,6 +107,18 @@ else
                 <p class="text-muted text-sm">Showing @selectedOutputs.Count saved output@(selectedOutputs.Count == 1 ? "" : "s") for the selected agent.</p>
             </div>
             <div class="page-actions">
+                <div class="filter-actions">
+                    <button class="btn btn-ghost btn-sm @(outputsViewMode == "grid" ? "btn-primary" : "")"
+                            @onclick='() => outputsViewMode = "grid"'
+                            title="Grid view">
+                        <i class="bi bi-grid-3x2-gap"></i>
+                    </button>
+                    <button class="btn btn-ghost btn-sm @(outputsViewMode == "list" ? "btn-primary" : "")"
+                            @onclick='() => outputsViewMode = "list"'
+                            title="List view">
+                        <i class="bi bi-list-ul"></i>
+                    </button>
+                </div>
                 <button class="btn btn-ghost" @onclick='() => Nav.NavigateTo($"/agents/{selectedAgent.Agent.Id}")'>
                     <i class="bi bi-robot"></i> Open Agent
                 </button>
@@ -130,11 +142,11 @@ else
         else
         {
             <div class="outputs-stage">
-                <div class="outputs-history-grid">
+                <div class="@(outputsViewMode == "list" ? "outputs-history-list" : "outputs-history-grid")">
                     @foreach (var task in selectedOutputs)
                     {
                         <button type="button"
-                                class="outputs-history-card @(selectedTask?.Id == task.Id ? "outputs-history-card--selected" : "")"
+                                class="outputs-history-card @(outputsViewMode == "list" ? "outputs-history-card--list" : "") @(selectedTask?.Id == task.Id ? "outputs-history-card--selected" : "")"
                                 @onclick="() => SelectTask(task)">
                             <div class="outputs-history-card__header">
                                 <TaskStatusBadge Status="@task.Status" />
@@ -257,6 +269,7 @@ else
     private bool showFailuresOnly;
     private bool isReplaying;
     private AgentStatus? statusFilter;
+    private string outputsViewMode = "grid";
     private Timer? _timer;
 
     private static readonly AgentStatus[] AllStatuses = Enum.GetValues<AgentStatus>();

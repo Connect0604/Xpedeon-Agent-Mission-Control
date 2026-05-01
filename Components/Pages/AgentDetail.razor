@@ -9,8 +9,9 @@
 @inject RealtimeService RealtimeService
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject DomainPresentationService Domain
 
-<PageTitle>@(agent?.Name ?? "Agent") — Xpedeon AMC</PageTitle>
+<PageTitle>@(agent?.Name ?? Domain.Terms.AgentSingular) - @Domain.ActivePack.ProductName</PageTitle>
 
 @{
     var runningTask  = agentTasks.FirstOrDefault(t => t.Status == AgentTaskStatus.Running);
@@ -21,9 +22,9 @@
 {
     <div class="empty-state">
         <div class="empty-icon"><i class="bi bi-robot"></i></div>
-        <div class="empty-title">Agent not found</div>
-        <div class="empty-desc">The agent ID "@AgentId" does not exist.</div>
-        <button class="btn btn-ghost mt-4" @onclick='() => Nav.NavigateTo("/agents")'><i class="bi bi-arrow-left"></i> Back to Agents</button>
+        <div class="empty-title">@Domain.Terms.AgentSingular not found</div>
+        <div class="empty-desc">The @Domain.Terms.AgentSingular.ToLowerInvariant() ID "@AgentId" does not exist.</div>
+        <button class="btn btn-ghost mt-4" @onclick='() => Nav.NavigateTo("/agents")'><i class="bi bi-arrow-left"></i> Back to @Domain.Terms.AgentPlural</button>
     </div>
 }
 else
@@ -55,7 +56,7 @@ else
             <div style="display:flex;gap:var(--s2);">
                 <button class="btn btn-primary" @onclick="OpenRunModal"
                         disabled="@(agent.Status == AgentStatus.Offline || agent.IsCircuitOpen)">
-                    <i class="bi bi-play-fill"></i> Run Task
+                    <i class="bi bi-play-fill"></i> Run @Domain.Terms.TaskSingular
                 </button>
                 <button class="btn btn-ghost btn-sm" @onclick='() => Nav.NavigateTo($"/agents/{AgentId}/edit")'>
                     <i class="bi bi-pencil"></i>
@@ -104,7 +105,7 @@ else
     <div class="tab-bar mb-0">
         <button class="tab @(activeTab == "overview" ? "on" : "")" @onclick='() => activeTab = "overview"'>Overview</button>
         <button class="tab @(activeTab == "tasks" ? "on" : "")" @onclick='() => activeTab = "tasks"'>
-            Tasks <span class="tab-count">@agentTasks.Count</span>
+            @Domain.Terms.TaskPlural <span class="tab-count">@agentTasks.Count</span>
         </button>
         <button class="tab @(activeTab == "chat" ? "on" : "")" @onclick="SetChatTab">
             <i class="bi bi-chat-dots"></i> Chat
@@ -304,9 +305,9 @@ else
             {
                 <div class="card card-pad empty-state">
                     <div class="empty-icon"><i class="bi bi-inbox"></i></div>
-                    <div class="empty-title">No tasks yet</div>
-                    <div class="empty-desc">Click Run Task to execute this agent.</div>
-                    <button class="btn btn-primary mt-4" @onclick="OpenRunModal"><i class="bi bi-play-fill"></i> Run Task</button>
+                    <div class="empty-title">No @Domain.Terms.TaskPlural.ToLowerInvariant() yet</div>
+                    <div class="empty-desc">Click Run @Domain.Terms.TaskSingular to execute this @Domain.Terms.AgentSingular.ToLowerInvariant().</div>
+                    <button class="btn btn-primary mt-4" @onclick="OpenRunModal"><i class="bi bi-play-fill"></i> Run @Domain.Terms.TaskSingular</button>
                 </div>
             }
             else
@@ -314,7 +315,7 @@ else
                 <div class="task-workspace">
                     <div class="task-list-pane">
                         <div class="task-list-pane__header">
-                            <div class="section-head"><i class="bi bi-list-task"></i> Task History</div>
+                            <div class="section-head"><i class="bi bi-list-task"></i> @Domain.Terms.TaskPlural History</div>
                             <span class="text-xs text-muted">@agentTasks.Count items</span>
                         </div>
                         <div class="task-list">

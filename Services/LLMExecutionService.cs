@@ -24,6 +24,14 @@ public class LLMResult
 public class LLMExecutionService
 {
     private const int DefaultMaxMcpIterations = 4;
+    private static readonly Dictionary<string, string[]> ToolAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["web_search"] = ["tavily_search"],
+        ["web_extract"] = ["tavily_extract"],
+        ["web_crawl"] = ["tavily_crawl"],
+        ["web_map"] = ["tavily_map"],
+        ["web_research"] = ["tavily_research"]
+    };
     private readonly IHttpClientFactory _httpFactory;
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly MCPService _mcpService;
@@ -171,11 +179,12 @@ public class LLMExecutionService
             var iterationResults = new List<MCPToolCallResult>();
             foreach (var call in requestedCalls)
             {
+                var resolvedToolName = ResolveRequestedToolName(call.ToolName, discoveredTools);
                 var correlatedSkills = activeSkills
                     .Where(s =>
                     {
                         var allowed = s.SkillDefinition == null ? new List<string>() : SkillService.ParseAllowedToolNames(s.SkillDefinition);
-                        return !allowed.Any() || allowed.Contains(call.ToolName, StringComparer.OrdinalIgnoreCase);
+                        return !allowed.Any() || allowed.Contains(call.ToolName, StringComparer.OrdinalIgnoreCase) || allowed.Contains(resolvedToolName, StringComparer.OrdinalIgnoreCase);
                     })
                     .Select(s => new { s.SkillDefinitionId, Name = s.SkillDefinition?.Name })
                     .ToList();
@@ -185,12 +194,12 @@ public class LLMExecutionService
                     agent.Id,
                     TaskExecutionEventType.MCPToolRequested,
                     $"Requested MCP tool '{call.ToolName}'.",
-                    new { call.Arguments, CorrelatedSkills = correlatedSkills },
+                    new { call.Arguments, CorrelatedSkills = correlatedSkills, ResolvedToolName = resolvedToolName },
                     skillDefinitionId: correlatedSkills.FirstOrDefault()?.SkillDefinitionId,
                     skillName: correlatedSkills.FirstOrDefault()?.Name,
                     toolName: call.ToolName);
 
-                var tool = discoveredTools.FirstOrDefault(t => t.Name.Equals(call.ToolName, StringComparison.OrdinalIgnoreCase));
+                var tool = discoveredTools.FirstOrDefault(t => t.Name.Equals(resolvedToolName, StringComparison.OrdinalIgnoreCase));
                 if (tool == null)
                 {
                     await LogEventAsync(
@@ -198,7 +207,7 @@ public class LLMExecutionService
                         agent.Id,
                         TaskExecutionEventType.MCPToolBlocked,
                         $"Blocked MCP tool '{call.ToolName}' because it was not discovered.",
-                        new { call.Arguments },
+                        new { call.Arguments, ResolvedToolName = resolvedToolName },
                         skillDefinitionId: correlatedSkills.FirstOrDefault()?.SkillDefinitionId,
                         skillName: correlatedSkills.FirstOrDefault()?.Name,
                         toolName: call.ToolName);
@@ -686,6 +695,21 @@ public class LLMExecutionService
         }
 
         return requests;
+    }
+
+    public static string ResolveRequestedToolName(string requestedToolName, IReadOnlyCollection<MCPToolInfo> discoveredTools)
+    {
+        if (discoveredTools.Any(t => t.Name.Equals(requestedToolName, StringComparison.OrdinalIgnoreCase)))
+            return requestedToolName;
+
+        if (ToolAliases.TryGetValue(requestedToolName, out var aliases))
+        {
+            var resolved = aliases.FirstOrDefault(alias => discoveredTools.Any(t => t.Name.Equals(alias, StringComparison.OrdinalIgnoreCase)));
+            if (!string.IsNullOrWhiteSpace(resolved))
+                return resolved;
+        }
+
+        return requestedToolName;
     }
 
     private static string BuildKnownToolExamples(IReadOnlyCollection<MCPToolInfo> tools)

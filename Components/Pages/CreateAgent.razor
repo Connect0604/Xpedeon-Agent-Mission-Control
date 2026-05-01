@@ -7,13 +7,15 @@
 @inject TemplateService TemplateService
 @inject SkillService SkillService
 @inject NavigationManager Nav
+@inject DomainPresentationService Domain
+@inject TimeDisplayService TimeDisplay
 
 <PageTitle>Create Agent — Xpedeon AMC</PageTitle>
 
 <div class="page-header">
     <div>
-        <h1 class="page-title">Create Agent</h1>
-        <p class="page-subtitle">Set up an agent, connect its model, and define how it should behave.</p>
+        <h1 class="page-title">@Domain.ResolvePageTitle("/agents/create")</h1>
+        <p class="page-subtitle">Set up a @Domain.Terms.AgentSingular.ToLowerInvariant(), connect its model, and define how it should behave.</p>
     </div>
     <button class="btn btn-ghost" @onclick='() => Nav.NavigateTo("/agents")'>
         <i class="bi bi-arrow-left"></i> Back
@@ -57,8 +59,8 @@
         @if (currentStep == 1)
         {
             <div class="card card-pad">
-                <h3 class="section-title mb-4">Agent Basics</h3>
-                <p class="form-section-intro">Start with identity and intent. This is the information people will scan first in the fleet.</p>
+                <h3 class="section-title mb-4">@Domain.Terms.AgentSingular Basics</h3>
+                <p class="form-section-intro">Start with identity and intent. This is the information people will scan first in the @Domain.Terms.AgentPlural.ToLowerInvariant() roster.</p>
 
                 <!-- Template picker -->
                 @if (templates.Any())
@@ -88,13 +90,13 @@
                 }
 
                 <div class="form-group">
-                    <label class="form-label">Agent Name <span class="text-error">*</span></label>
+                    <label class="form-label">@Domain.Terms.AgentSingular Name <span class="text-error">*</span></label>
                     <input class="form-input" @bind="agent.Name" placeholder="e.g. Invoice Validator" />
                     <div class="form-hint">Choose a short, recognizable name that will still make sense in task history.</div>
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">Agent Type <span class="text-error">*</span></label>
+                    <label class="form-label">@Domain.Terms.AgentSingular Type <span class="text-error">*</span></label>
                     <div class="type-picker">
                         @foreach (var t in Enum.GetValues<AgentType>())
                         {
@@ -148,7 +150,7 @@
                     </div>
                     <div class="form-hint">
                         <i class="bi bi-info-circle"></i>
-                        Local runs stay inside Mission Control. Hermes/OpenClaw delegates execution to the external runtime after approval.
+                        Local runs stay inside @Domain.ActivePack.ProductTagline. Hermes/OpenClaw delegates execution to the external runtime after approval.
                     </div>
                 </div>
 
@@ -350,7 +352,7 @@
 
             <div class="card card-pad mt-4">
                 <h3 class="section-title mb-4">Local Automation</h3>
-                <p class="form-section-intro">Enable this only for agents that should act on the Mission Control host machine.</p>
+                <p class="form-section-intro">Enable this only for @Domain.Terms.AgentPlural.ToLowerInvariant() that should act on the @Domain.ActivePack.ProductTagline host machine.</p>
                 <div class="toggle-group">
                     <div class="toggle-item">
                         <div>
@@ -599,12 +601,12 @@
         @if (currentStep == 5)
         {
             <div class="card card-pad">
-                <h3 class="section-title mb-4">Dynamic Agent Spawning</h3>
-                <p class="form-section-intro">Configure whether this agent should break work into smaller child tasks at runtime.</p>
+                <h3 class="section-title mb-4">Dynamic @Domain.Terms.AgentSingular Spawning</h3>
+                <p class="form-section-intro">Configure whether this @Domain.Terms.AgentSingular.ToLowerInvariant() should break work into smaller child @Domain.Terms.TaskPlural.ToLowerInvariant() at runtime.</p>
                 <div class="toggle-item mb-4">
                     <div>
                         <div class="toggle-label">Enable Dynamic Spawning</div>
-                        <div class="toggle-desc text-muted text-sm">Agent spawns child agents at runtime based on task input</div>
+                        <div class="toggle-desc text-muted text-sm">@Domain.Terms.AgentSingular spawns child @Domain.Terms.AgentPlural.ToLowerInvariant() at runtime based on task input</div>
                     </div>
                     <label class="toggle-switch">
                         <input type="checkbox" @bind="agent.SpawnEnabled" />
@@ -713,7 +715,7 @@
             {
                 <button class="btn btn-primary ml-auto" @onclick="SubmitAgent" disabled="@isSaving">
                     @if (isSaving) { <span class="spinner"></span> }
-                    <i class="bi bi-check-lg"></i> @(isSaving ? "Creating..." : "Create Agent")
+                    <i class="bi bi-check-lg"></i> @(isSaving ? "Creating..." : Domain.Terms.AgentCreateAction)
                 </button>
             }
         </div>
@@ -881,7 +883,7 @@
                 IsEnabled = true,
                 CreatedAt = DateTime.UtcNow,
                 LastRunAt = null,
-                NextRunAt = AgentSchedulerService.ComputeNext(cronExpression, DateTime.UtcNow)
+                        NextRunAt = AgentSchedulerService.ComputeNext(cronExpression, DateTime.UtcNow, TimeDisplay.TimeZone)
             };
         }
 
@@ -939,7 +941,7 @@
     private string NextRunPreview
         => !scheduleEnabled
             ? "Disabled"
-            : AgentSchedulerService.ComputeNext(cronExpression, DateTime.UtcNow).ToLocalTime().ToString("dd MMM yyyy HH:mm");
+            : TimeDisplay.Format(AgentSchedulerService.ComputeNext(cronExpression, DateTime.UtcNow, TimeDisplay.TimeZone), "dd MMM yyyy HH:mm");
 
     private static string AllowedRootsToText(string? json)
     {

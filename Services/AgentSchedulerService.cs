@@ -7,24 +7,28 @@ namespace XpedeonAgentMissionControl.Services;
 /// <summary>
 /// Background service that polls AgentSchedules every minute and fires
 /// tasks for any schedule whose next run time has passed.
-/// Uses a simple in-process cron parser — no Quartz job store needed.
+/// Uses a simple in-process cron parser; no Quartz job store needed.
 /// </summary>
 public class AgentSchedulerService : BackgroundService
 {
     private readonly IServiceProvider _services;
     private readonly ILogger<AgentSchedulerService> _logger;
+    private readonly TimeDisplayService _timeDisplay;
 
-    public AgentSchedulerService(IServiceProvider services, ILogger<AgentSchedulerService> logger)
+    public AgentSchedulerService(
+        IServiceProvider services,
+        ILogger<AgentSchedulerService> logger,
+        TimeDisplayService timeDisplay)
     {
         _services = services;
         _logger = logger;
+        _timeDisplay = timeDisplay;
     }
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         _logger.LogInformation("AgentSchedulerService started.");
 
-        // Align to next minute boundary
         var delay = 60 - DateTime.UtcNow.Second;
         await Task.Delay(TimeSpan.FromSeconds(delay), ct);
 
@@ -46,7 +50,7 @@ public class AgentSchedulerService : BackgroundService
     private async Task TickAsync()
     {
         await using var scope = _services.CreateAsyncScope();
-        var factory     = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
+        var factory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
         var taskService = scope.ServiceProvider.GetRequiredService<TaskService>();
 
         await using var db = factory.CreateDbContext();
@@ -61,22 +65,27 @@ public class AgentSchedulerService : BackgroundService
         {
             try
             {
-                var next = schedule.NextRunAt ?? ComputeNext(schedule.CronExpression, schedule.LastRunAt ?? schedule.CreatedAt);
+                var next = schedule.NextRunAt
+                    ?? ComputeNext(schedule.CronExpression, schedule.LastRunAt ?? schedule.CreatedAt, _timeDisplay.TimeZone);
 
-                if (next > now) continue; // not yet due
+                if (next > now)
+                    continue;
 
-                _logger.LogInformation("Firing scheduled task for agent {AgentId} (schedule {ScheduleId})", schedule.AgentId, schedule.Id);
+                _logger.LogInformation(
+                    "Firing scheduled task for agent {AgentId} (schedule {ScheduleId})",
+                    schedule.AgentId,
+                    schedule.Id);
 
                 await taskService.CreateAndRunAsync(
                     schedule.AgentId,
-                    $"Scheduled Run — {now:MMM d HH:mm}",
+                    _timeDisplay.FormatScheduledRunLabel(now),
                     schedule.DefaultInput ?? "",
                     schedule.Priority,
                     TriggerSource.Scheduled);
 
                 schedule.LastRunAt = now;
                 schedule.TotalRuns++;
-                schedule.NextRunAt = ComputeNext(schedule.CronExpression, now);
+                schedule.NextRunAt = ComputeNext(schedule.CronExpression, now, _timeDisplay.TimeZone);
                 await db.SaveChangesAsync();
             }
             catch (Exception ex)
@@ -88,50 +97,81 @@ public class AgentSchedulerService : BackgroundService
 
     /// <summary>
     /// Parses a 5-field cron expression (min hour dom month dow) and returns
-    /// the next DateTime after <paramref name="after"/>.
+    /// the next UTC DateTime after <paramref name="after"/> using the provided display time zone.
     /// Supports: * (any), */n (every n), n (exact), n-m (range), n,m (list).
     /// </summary>
-    public static DateTime ComputeNext(string cron, DateTime after)
+    public static DateTime ComputeNext(string cron, DateTime after, TimeZoneInfo? timeZone = null)
     {
         var fields = cron.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (fields.Length != 5) return after.AddMinutes(60); // fallback
+        if (fields.Length != 5)
+            return NormalizeUtc(after).AddMinutes(60);
 
-        var candidate = after.AddMinutes(1);
-        candidate = new DateTime(candidate.Year, candidate.Month, candidate.Day, candidate.Hour, candidate.Minute, 0, DateTimeKind.Utc);
+        timeZone ??= TimeZoneInfo.Utc;
 
-        // Limit search to avoid infinite loop
+        var localAfter = TimeZoneInfo.ConvertTimeFromUtc(NormalizeUtc(after), timeZone);
+        var candidate = localAfter.AddMinutes(1);
+        candidate = DateTime.SpecifyKind(
+            new DateTime(candidate.Year, candidate.Month, candidate.Day, candidate.Hour, candidate.Minute, 0),
+            DateTimeKind.Unspecified);
+
         var limit = candidate.AddYears(1);
 
         while (candidate < limit)
         {
-            if (!Matches(fields[1], candidate.Hour))   { candidate = candidate.AddHours(1).AddMinutes(-candidate.Minute); continue; }
-            if (!Matches(fields[0], candidate.Minute)) { candidate = candidate.AddMinutes(1); continue; }
+            if (!Matches(fields[1], candidate.Hour))
+            {
+                candidate = candidate.AddHours(1).AddMinutes(-candidate.Minute);
+                continue;
+            }
+
+            if (!Matches(fields[0], candidate.Minute))
+            {
+                candidate = candidate.AddMinutes(1);
+                continue;
+            }
+
             if (!MatchesDayOfMonthAndWeek(fields[2], fields[4], candidate))
             {
                 candidate = candidate.AddDays(1).AddHours(-candidate.Hour).AddMinutes(-candidate.Minute);
                 continue;
             }
-            if (!Matches(fields[3], candidate.Month))  { candidate = candidate.AddMonths(1).AddDays(-(candidate.Day - 1)).AddHours(-candidate.Hour).AddMinutes(-candidate.Minute); continue; }
-            return candidate;
+
+            if (!Matches(fields[3], candidate.Month))
+            {
+                candidate = candidate.AddMonths(1).AddDays(-(candidate.Day - 1)).AddHours(-candidate.Hour).AddMinutes(-candidate.Minute);
+                continue;
+            }
+
+            return TimeZoneInfo.ConvertTimeToUtc(candidate, timeZone);
         }
 
-        return after.AddHours(1);
+        return NormalizeUtc(after).AddHours(1);
     }
+
+    private static DateTime NormalizeUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Local => value.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+    };
 
     private static bool Matches(string field, int value)
     {
-        if (field == "*") return true;
+        if (field == "*")
+            return true;
 
         foreach (var part in field.Split(','))
         {
             if (part.StartsWith("*/"))
             {
-                if (int.TryParse(part[2..], out var step) && value % step == 0) return true;
+                if (int.TryParse(part[2..], out var step) && value % step == 0)
+                    return true;
             }
             else if (part.Contains('-'))
             {
                 var bounds = part.Split('-');
-                if (int.TryParse(bounds[0], out var lo) && int.TryParse(bounds[1], out var hi) && value >= lo && value <= hi) return true;
+                if (int.TryParse(bounds[0], out var lo) && int.TryParse(bounds[1], out var hi) && value >= lo && value <= hi)
+                    return true;
             }
             else if (int.TryParse(part, out var exact) && exact == value)
             {

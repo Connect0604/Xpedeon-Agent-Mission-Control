@@ -4,16 +4,17 @@
 @inject WorkflowService WorkflowService
 @inject RealtimeService RealtimeService
 @inject NavigationManager Nav
+@inject DomainPresentationService Domain
 
-<PageTitle>Workflows - Xpedeon AMC</PageTitle>
+<PageTitle>@Domain.ResolvePageTitle("/workflows") - @Domain.ActivePack.ProductName</PageTitle>
 
 <div class="page-header">
     <div>
-        <h1 class="page-title">Workflows</h1>
-        <p class="page-subtitle">Chain existing agents and swarms into reusable operational workflows.</p>
+        <h1 class="page-title">@Domain.Terms.WorkflowPlural</h1>
+        <p class="page-subtitle">Chain existing @Domain.Terms.AgentPlural.ToLowerInvariant() and @Domain.Terms.SwarmPlural.ToLowerInvariant() into reusable operational @Domain.Terms.WorkflowPlural.ToLowerInvariant().</p>
     </div>
     <button class="btn btn-primary" @onclick='() => Nav.NavigateTo("/workflows/create")'>
-        <i class="bi bi-plus-lg"></i> New Workflow
+        <i class="bi bi-plus-lg"></i> New @Domain.Terms.WorkflowSingular
     </button>
 </div>
 
@@ -21,8 +22,8 @@
 {
     <div class="card card-pad empty-state">
         <div class="empty-icon"><i class="bi bi-diagram-2"></i></div>
-        <div class="empty-title">No workflows yet</div>
-        <div class="empty-desc">Create a workflow to orchestrate agents and swarms as a reusable process.</div>
+        <div class="empty-title">No @Domain.Terms.WorkflowPlural.ToLowerInvariant() yet</div>
+        <div class="empty-desc">Create a @Domain.Terms.WorkflowSingular.ToLowerInvariant() to orchestrate @Domain.Terms.AgentPlural.ToLowerInvariant() and @Domain.Terms.SwarmPlural.ToLowerInvariant() as a reusable process.</div>
     </div>
 }
 else

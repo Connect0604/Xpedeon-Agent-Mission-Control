@@ -6,13 +6,14 @@
 @inject MockDataService DataService
 @inject RealtimeService RealtimeService
 @inject NavigationManager Nav
+@inject DomainPresentationService Domain
 
-<PageTitle>Tasks - Xpedeon AMC</PageTitle>
+<PageTitle>@Domain.ResolvePageTitle("/tasks") - @Domain.ActivePack.ProductName</PageTitle>
 
 <div class="page-header">
     <div>
-        <h1 class="page-title">Tasks</h1>
-        <p class="page-subtitle">Review the queue, pending approvals, and recent execution history.</p>
+        <h1 class="page-title">@Domain.ResolvePageTitle("/tasks")</h1>
+        <p class="page-subtitle">Review the @Domain.Terms.TaskSingular.ToLowerInvariant() queue, pending approvals, and recent execution history.</p>
     </div>
 </div>
 
@@ -29,7 +30,7 @@
 <div class="filter-bar">
     <div class="search-box">
         <i class="bi bi-search"></i>
-        <input type="text" placeholder="Search tasks..." @bind="searchQuery" @bind:event="oninput" @bind:after="ApplyFilter" />
+        <input type="text" placeholder="@($"Search {Domain.Terms.TaskPlural.ToLowerInvariant()}...")" @bind="searchQuery" @bind:event="oninput" @bind:after="ApplyFilter" />
     </div>
     @foreach (var prio in Priorities)
     {
@@ -40,7 +41,7 @@
 @if (pendingApprovals.Any())
 {
     <div class="card card-pad mb-4" style="border-color:var(--c-warning-border);background:var(--c-warning-bg);">
-        <div class="section-head"><i class="bi bi-hourglass text-warning"></i> @pendingApprovals.Count task(s) awaiting approval</div>
+        <div class="section-head"><i class="bi bi-hourglass text-warning"></i> @($"{pendingApprovals.Count} {Domain.Terms.TaskSingular.ToLowerInvariant()}(s) awaiting approval")</div>
         @foreach (var t in pendingApprovals)
         {
             <div class="approval-row">
@@ -72,8 +73,8 @@
 {
     <div class="card card-pad empty-state">
         <div class="empty-icon"><i class="bi bi-inbox"></i></div>
-        <div class="empty-title">No tasks found</div>
-        <div class="empty-desc">Run a task from an agent's detail page.</div>
+        <div class="empty-title">No @Domain.Terms.TaskPlural.ToLowerInvariant() found</div>
+        <div class="empty-desc">Run a @Domain.Terms.TaskSingular.ToLowerInvariant() from a @Domain.Terms.AgentSingular.ToLowerInvariant() detail page.</div>
     </div>
 }
 else
@@ -81,7 +82,7 @@ else
     <div class="task-workspace">
         <div class="task-list-pane">
             <div class="task-list-pane__header">
-                <div class="section-head"><i class="bi bi-list-task"></i> Task History</div>
+                <div class="section-head"><i class="bi bi-list-task"></i> @Domain.Terms.TaskPlural History</div>
                 <span class="text-xs text-muted">@filtered.Count items</span>
             </div>
             <div class="task-list">
@@ -127,7 +128,7 @@ else
                         <h3 class="section-title">@selectedTask.Name</h3>
                         <p class="text-muted text-sm">
                             @selectedTask.AgentName ·
-                            <a href="/agents/@selectedTask.AgentId" class="text-accent">View Agent</a>
+                            <a href="/agents/@selectedTask.AgentId" class="text-accent">View @Domain.Terms.AgentSingular</a>
                         </p>
                     </div>
                     <div style="display:flex;gap:var(--s2);align-items:center;">
@@ -365,8 +366,8 @@ else
             {
                 <div class="task-detail-empty">
                     <div class="empty-icon"><i class="bi bi-layout-sidebar-inset"></i></div>
-                    <div class="empty-title">Select a Task</div>
-                    <div class="empty-desc">Choose a task from the left to inspect input, output, execution trace, and agent context.</div>
+                    <div class="empty-title">Select a @Domain.Terms.TaskSingular</div>
+                    <div class="empty-desc">Choose a @Domain.Terms.TaskSingular.ToLowerInvariant() from the left to inspect input, output, execution trace, and @Domain.Terms.AgentSingular.ToLowerInvariant() context.</div>
                 </div>
             }
         </div>

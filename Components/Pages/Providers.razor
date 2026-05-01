@@ -2,13 +2,14 @@
 @rendermode InteractiveServer
 @inject LLMProviderService ProviderService
 @inject NavigationManager Nav
+@inject DomainPresentationService Domain
 
-<PageTitle>LLM Providers - Xpedeon AMC</PageTitle>
+<PageTitle>@Domain.ResolvePageTitle("/providers") - @Domain.ActivePack.ProductName</PageTitle>
 
 <div class="page-header">
     <div>
-        <h1 class="page-title">LLM Providers</h1>
-        <p class="page-subtitle">Configure AI model providers for your agents</p>
+        <h1 class="page-title">@Domain.Terms.ProviderPlural</h1>
+        <p class="page-subtitle">Configure AI model providers for your @Domain.Terms.AgentPlural.ToLowerInvariant().</p>
     </div>
     <button class="btn btn-primary" @onclick="OpenCreateModal">
         <i class="bi bi-plus-lg"></i> Add Provider
@@ -19,8 +20,8 @@
 {
     <div class="card card-pad empty-state">
         <div class="empty-icon"><i class="bi bi-cpu"></i></div>
-        <div class="empty-title">No providers configured</div>
-        <div class="empty-desc">Add a provider to start creating agents.</div>
+        <div class="empty-title">No @Domain.Terms.ProviderPlural.ToLowerInvariant() configured</div>
+        <div class="empty-desc">Add a provider to start creating @Domain.Terms.AgentPlural.ToLowerInvariant().</div>
         <button class="btn btn-primary mt-4" @onclick="OpenCreateModal">
             <i class="bi bi-plus-lg"></i> Add your first provider
         </button>

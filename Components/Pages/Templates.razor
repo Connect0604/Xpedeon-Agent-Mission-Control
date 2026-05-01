@@ -2,16 +2,17 @@
 @rendermode InteractiveServer
 @inject TemplateService TemplateService
 @inject NavigationManager Nav
+@inject DomainPresentationService Domain
 
-<PageTitle>Agent Templates — Xpedeon AMC</PageTitle>
+<PageTitle>@Domain.Terms.AgentTemplatePlural - @Domain.ActivePack.ProductName</PageTitle>
 
 <div class="page-header">
     <div>
-        <h1 class="page-title">Agent Templates</h1>
-        <p class="page-subtitle">Pre-built agents for Xpedeon workflows — pick one to get started fast</p>
+        <h1 class="page-title">@Domain.Terms.AgentTemplatePlural</h1>
+        <p class="page-subtitle">Pre-built @Domain.Terms.AgentPlural.ToLowerInvariant() for your @Domain.Terms.WorkflowPlural.ToLowerInvariant() - pick one to get started fast</p>
     </div>
     <button class="btn btn-primary" @onclick='() => Nav.NavigateTo("/agents/create")'>
-        <i class="bi bi-plus-lg"></i> Custom Agent
+        <i class="bi bi-plus-lg"></i> Custom @Domain.Terms.AgentSingular
     </button>
 </div>
 
@@ -32,7 +33,7 @@
 {
     <div class="card card-pad empty-state">
         <div class="empty-icon"><i class="bi bi-layout-text-window"></i></div>
-        <div class="empty-title">No templates found</div>
+        <div class="empty-title">No @Domain.Terms.AgentTemplatePlural.ToLowerInvariant() found</div>
     </div>
 }
 else

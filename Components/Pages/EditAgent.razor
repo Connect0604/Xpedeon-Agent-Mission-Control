@@ -6,6 +6,7 @@
 @inject SkillService SkillService
 @inject IDbContextFactory<AppDbContext> DbFactory
 @inject NavigationManager Nav
+@inject TimeDisplayService TimeDisplay
 
 <PageTitle>Edit Agent — Xpedeon AMC</PageTitle>
 
@@ -654,7 +655,7 @@ else
                         DefaultInput = scheduleInput, Priority = schedulePriority,
                         IsEnabled = true, CreatedAt = DateTime.UtcNow,
                         LastRunAt = null,
-                        NextRunAt = AgentSchedulerService.ComputeNext(cronExpression, DateTime.UtcNow)
+                        NextRunAt = AgentSchedulerService.ComputeNext(cronExpression, DateTime.UtcNow, TimeDisplay.TimeZone)
                     });
                 }
                 else
@@ -664,7 +665,7 @@ else
                     existing.Priority = schedulePriority;
                     existing.IsEnabled = true;
                     existing.LastRunAt = null;
-                    existing.NextRunAt = AgentSchedulerService.ComputeNext(cronExpression, DateTime.UtcNow);
+                    existing.NextRunAt = AgentSchedulerService.ComputeNext(cronExpression, DateTime.UtcNow, TimeDisplay.TimeZone);
                 }
             }
             else if (existing != null)
@@ -717,11 +718,11 @@ else
     private string NextRunPreview
         => !scheduleEnabled
             ? "Disabled"
-            : AgentSchedulerService.ComputeNext(cronExpression, DateTime.UtcNow).ToLocalTime().ToString("dd MMM yyyy HH:mm");
+            : TimeDisplay.Format(AgentSchedulerService.ComputeNext(cronExpression, DateTime.UtcNow, TimeDisplay.TimeZone), "dd MMM yyyy HH:mm");
 
     private string LastRunPreview
         => agent?.Schedule?.LastRunAt.HasValue == true
-            ? agent.Schedule.LastRunAt.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm")
+            ? TimeDisplay.Format(agent.Schedule.LastRunAt.Value, "dd MMM yyyy HH:mm")
             : "Never";
 
     private static int EstimateTokens(string text) => (int)(text.Length / 3.8);

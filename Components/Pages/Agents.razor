@@ -4,20 +4,22 @@
 @inject AgentService AgentService
 @inject RealtimeService RealtimeService
 @inject NavigationManager NavManager
+@inject DomainPresentationService Domain
+@inject TimeDisplayService TimeDisplay
 
-<PageTitle>Agents — Xpedeon AMC</PageTitle>
+<PageTitle>@Domain.ResolvePageTitle("/agents") - @Domain.ActivePack.ProductName</PageTitle>
 
 <div class="page-header">
     <div>
-        <h1 class="page-title">Agents</h1>
-        <p class="page-subtitle">Browse the fleet, filter by status, and inspect each agent's current workload.</p>
+        <h1 class="page-title">@Domain.ResolvePageTitle("/agents")</h1>
+        <p class="page-subtitle">Browse @Domain.Terms.AgentPlural.ToLowerInvariant(), filter by status, and inspect each @Domain.Terms.AgentSingular.ToLowerInvariant()'s current workload.</p>
     </div>
     <div class="page-actions">
         <button class="btn btn-ghost" @onclick='() => NavManager.NavigateTo("/templates")'>
-            <i class="bi bi-layout-text-window"></i> Templates
+            <i class="bi bi-layout-text-window"></i> @Domain.Terms.AgentTemplatePlural
         </button>
         <button class="btn btn-primary" @onclick='() => NavManager.NavigateTo("/agents/create")'>
-            <i class="bi bi-plus-lg"></i> Create Agent
+            <i class="bi bi-plus-lg"></i> @Domain.Terms.AgentCreateAction
         </button>
     </div>
 </div>
@@ -26,7 +28,7 @@
 <div class="filter-bar">
     <div class="search-box">
         <i class="bi bi-search"></i>
-        <input type="text" placeholder="Search agents..." @bind="searchQuery" @bind:event="oninput" @bind:after="ApplyFilter" />
+        <input type="text" placeholder="@($"Search {Domain.Terms.AgentPlural.ToLowerInvariant()}...")" @bind="searchQuery" @bind:event="oninput" @bind:after="ApplyFilter" />
     </div>
 
     @foreach (var status in AllStatuses)
@@ -54,8 +56,8 @@
 {
     <div class="card card-pad empty-state">
         <div class="empty-icon"><i class="bi bi-robot"></i></div>
-        <div class="empty-title">No agents match your filters</div>
-        <div class="empty-desc">Try adjusting the search or status filter, or create a new agent.</div>
+        <div class="empty-title">No @Domain.Terms.AgentPlural.ToLowerInvariant() match your filters</div>
+        <div class="empty-desc">Try adjusting the search or status filter, or add a new @Domain.Terms.AgentSingular.ToLowerInvariant().</div>
     </div>
 }
 else if (viewMode == "grid")
@@ -73,7 +75,7 @@ else
         <table class="data-table">
             <thead>
                 <tr>
-                    <th>Agent</th>
+                    <th>@Domain.Terms.AgentSingular</th>
                     <th>Type</th>
                     <th>Status</th>
                     <th>Current Task</th>
@@ -94,7 +96,7 @@ else
                         </td>
                         <td><TypeBadge Type="@agent.Type" /></td>
                         <td><StatusBadge Status="@agent.Status" /></td>
-                        <td style="max-width:180px;" class="truncate text-secondary">@agent.CurrentTask</td>
+                        <td style="max-width:180px;" class="truncate text-secondary">@DisplayCurrentTask(agent.CurrentTask)</td>
                         <td>
                             <span style="color:@(agent.CpuUsage >= 85 ? "var(--c-error)" : agent.CpuUsage >= 70 ? "var(--c-warning)" : "var(--txt-secondary)");">
                                 @agent.CpuUsage.ToString("F0")%
@@ -161,6 +163,9 @@ else
         statusFilter = statusFilter == status ? null : status;
         ApplyFilter();
     }
+
+    private string DisplayCurrentTask(string currentTask)
+        => TimeDisplay.NormalizeScheduledRunLabel(currentTask);
 
     private void NavToAgent(string id) => Nav.NavigateTo($"/agents/{id}");
 

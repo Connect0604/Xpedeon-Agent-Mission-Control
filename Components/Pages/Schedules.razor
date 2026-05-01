@@ -4,6 +4,7 @@
 @inject ScheduleService ScheduleService
 @inject NavigationManager Nav
 @inject RealtimeService RealtimeService
+@inject TimeDisplayService TimeDisplay
 
 <PageTitle>Schedules - Xpedeon AMC</PageTitle>
 
@@ -71,8 +72,8 @@
                             }
                         </div>
                         <div class="schedule-row__meta">
-                            <div><span class="text-muted text-xs">Next Run</span><span>@(nextRun.HasValue ? nextRun.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm") : "Not scheduled")</span></div>
-                            <div><span class="text-muted text-xs">Last Run</span><span>@(schedule.LastRunAt.HasValue ? schedule.LastRunAt.Value.ToLocalTime().ToString("dd MMM yyyy HH:mm") : "Never")</span></div>
+                            <div><span class="text-muted text-xs">Next Run</span><span>@(nextRun.HasValue ? TimeDisplay.Format(nextRun.Value, "dd MMM yyyy HH:mm") : "Not scheduled")</span></div>
+                            <div><span class="text-muted text-xs">Last Run</span><span>@(schedule.LastRunAt.HasValue ? TimeDisplay.Format(schedule.LastRunAt.Value, "dd MMM yyyy HH:mm") : "Never")</span></div>
                             <div><span class="text-muted text-xs">Priority</span><span>@schedule.Priority</span></div>
                             <div><span class="text-muted text-xs">Total Runs</span><span>@schedule.TotalRuns</span></div>
                         </div>

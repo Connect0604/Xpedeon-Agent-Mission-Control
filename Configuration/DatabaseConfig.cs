@@ -11,4 +11,5 @@ public class DatabaseConfig
     public string Password { get; set; } = string.Empty;
     public string FilePath { get; set; } = "xpedeon.db";
     public bool TrustServerCertificate { get; set; } = true;
+    public bool FallbackToSqliteWhenSqlServerUnavailable { get; set; } = true;
 }

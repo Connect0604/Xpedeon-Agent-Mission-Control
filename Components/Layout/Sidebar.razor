@@ -1,5 +1,6 @@
 @inject MockDataService DataService
 @inject NavigationManager Nav
+@inject DomainPresentationService Domain
 @implements IDisposable
 
 <nav class="sidebar aura-rail @(IsOpen ? "open" : "") @(IsCollapsed ? "collapsed" : "")" aria-label="Main navigation">
@@ -9,8 +10,8 @@
             <span class="brand-mark">X</span>
         </div>
         <div class="brand-text">
-            <span class="brand-name">Xpedeon</span>
-            <span class="brand-sub">Mission Control</span>
+            <span class="brand-name">@Domain.ActivePack.ProductName</span>
+            <span class="brand-sub">@Domain.ActivePack.ProductTagline</span>
         </div>
         <button class="sidebar-collapse-btn" type="button" @onclick="OnToggleCollapse" aria-label="Collapse sidebar">
             <i class="bi @(IsCollapsed ? "bi-layout-sidebar-inset" : "bi-layout-sidebar")"></i>
@@ -19,18 +20,18 @@
 
     <!-- Navigation -->
     <div class="sidebar-nav">
-        <div class="nav-section">Overview</div>
+        <div class="nav-section">@Domain.Navigation.Overview</div>
 
         <NavLink class="nav-item" href="/" Match="NavLinkMatch.All" @onclick="HandleNavigate">
             <i class="bi bi-grid-1x2" aria-hidden="true"></i>
-            <span class="nav-label">Dashboard</span>
+            <span class="nav-label">@Domain.ResolvePageTitle("/")</span>
         </NavLink>
 
-        <div class="nav-section">Agents</div>
+        <div class="nav-section">@Domain.Navigation.Workforce</div>
 
         <NavLink class="nav-item" href="/agents" Match="NavLinkMatch.All" @onclick="HandleNavigate">
             <i class="bi bi-robot" aria-hidden="true"></i>
-            <span class="nav-label">All Agents</span>
+            <span class="nav-label">All @Domain.Terms.AgentPlural</span>
             @if (errorCount > 0)
             {
                 <span class="nav-badge error" aria-label="@errorCount errors">@errorCount</span>
@@ -39,29 +40,29 @@
 
         <NavLink class="nav-item" href="/agents/create" @onclick="HandleNavigate">
             <i class="bi bi-plus-circle" aria-hidden="true"></i>
-            <span class="nav-label">Create Agent</span>
+            <span class="nav-label">@Domain.Terms.AgentCreateAction</span>
         </NavLink>
 
         <NavLink class="nav-item" href="/templates" @onclick="HandleNavigate">
             <i class="bi bi-layout-text-window" aria-hidden="true"></i>
-            <span class="nav-label">Templates</span>
+            <span class="nav-label">@Domain.Terms.AgentTemplatePlural</span>
         </NavLink>
 
         <NavLink class="nav-item" href="/swarms" @onclick="HandleNavigate">
             <i class="bi bi-diagram-3" aria-hidden="true"></i>
-            <span class="nav-label">Swarms</span>
+            <span class="nav-label">@Domain.Terms.SwarmPlural</span>
         </NavLink>
 
         <NavLink class="nav-item" href="/workflows" @onclick="HandleNavigate">
             <i class="bi bi-diagram-2" aria-hidden="true"></i>
-            <span class="nav-label">Workflows</span>
+            <span class="nav-label">@Domain.Terms.WorkflowPlural</span>
         </NavLink>
 
-        <div class="nav-section">Operations</div>
+        <div class="nav-section">@Domain.Navigation.Operations</div>
 
         <NavLink class="nav-item" href="/tasks" @onclick="HandleNavigate">
             <i class="bi bi-list-task" aria-hidden="true"></i>
-            <span class="nav-label">Tasks</span>
+            <span class="nav-label">@Domain.Terms.TaskPlural</span>
             @if (runningCount > 0)
             {
                 <span class="nav-badge info" aria-label="@runningCount running">@runningCount</span>
@@ -70,7 +71,7 @@
 
         <NavLink class="nav-item" href="/outputs" @onclick="HandleNavigate">
             <i class="bi bi-chat-square-text" aria-hidden="true"></i>
-            <span class="nav-label">Outputs</span>
+            <span class="nav-label">@Domain.Terms.OutputPlural</span>
         </NavLink>
 
         <NavLink class="nav-item" href="/schedules" @onclick="HandleNavigate">
@@ -88,11 +89,11 @@
             <span class="nav-label">Logs</span>
         </NavLink>
 
-        <div class="nav-section">Configuration</div>
+        <div class="nav-section">@Domain.Navigation.Configuration</div>
 
         <NavLink class="nav-item" href="/providers" @onclick="HandleNavigate">
             <i class="bi bi-cpu" aria-hidden="true"></i>
-            <span class="nav-label">LLM Providers</span>
+            <span class="nav-label">@Domain.Terms.ProviderPlural</span>
         </NavLink>
 
         <NavLink class="nav-item" href="/skills" @onclick="HandleNavigate">
@@ -122,11 +123,11 @@
         <div class="sys-status-row">
             <div class="sys-stat">
                 <span class="dot @(errorCount == 0 ? "active" : "error") sm" aria-hidden="true"></span>
-                <span>@(errorCount == 0 ? "Healthy" : $"{errorCount} issues")</span>
+                <span>@(errorCount == 0 ? Domain.Status.Healthy : $"{errorCount} {Domain.Status.Issues}")</span>
             </div>
             <div class="sys-stat text-muted text-xs">
                 <i class="bi bi-hdd-rack" aria-hidden="true"></i>
-                @activeCount/@totalCount online
+                @activeCount/@totalCount @Domain.Status.Online
             </div>
         </div>
     </div>

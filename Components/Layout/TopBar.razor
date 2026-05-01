@@ -1,4 +1,5 @@
 @inject NavigationManager Nav
+@inject DomainPresentationService Domain
 @implements IDisposable
 
 <header class="topbar">
@@ -7,7 +8,7 @@
             <i class="bi bi-list"></i>
         </button>
         <div class="topbar-heading">
-            <span class="topbar-crumb">Mission Control</span>
+            <span class="topbar-crumb">@Domain.ActivePack.OverviewCrumb</span>
             <span class="topbar-title">@PageTitle</span>
         </div>
     </div>
@@ -28,20 +29,7 @@
     private string currentTime = "";
     private Timer? _clockTimer;
 
-    private string PageTitle => Nav.Uri.TrimEnd('/') switch
-    {
-        var u when u.Contains("/agents/create")  => "Create Agent",
-        var u when u.Contains("/agents/")        => "Agent Detail",
-        var u when u.EndsWith("/agents")         => "Agents",
-        var u when u.EndsWith("/tasks")          => "Tasks",
-        var u when u.EndsWith("/outputs")        => "Outputs",
-        var u when u.EndsWith("/logs")           => "Logs",
-        var u when u.EndsWith("/providers")      => "LLM Providers",
-        var u when u.EndsWith("/templates")      => "Agent Templates",
-        var u when u.EndsWith("/swarms")         => "Swarms",
-        var u when u.EndsWith("/mcp")            => "MCP Servers",
-        _ => "Dashboard"
-    };
+    private string PageTitle => Domain.ResolvePageTitle(Nav.Uri);
 
     protected override void OnInitialized()
     {
