@@ -60,6 +60,9 @@ public class AppDbContext : DbContext
     public DbSet<TaskExecutionAttempt> TaskExecutionAttempts => Set<TaskExecutionAttempt>();
     public DbSet<CircuitBreakerState> CircuitBreakerStates => Set<CircuitBreakerState>();
     public DbSet<TaskCheckpoint> TaskCheckpoints => Set<TaskCheckpoint>();
+    public DbSet<AgentSLA> AgentSLAs => Set<AgentSLA>();
+    public DbSet<SLAViolation> SLAViolations => Set<SLAViolation>();
+    public DbSet<AgentMetricsSnapshot> AgentMetricsSnapshots => Set<AgentMetricsSnapshot>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

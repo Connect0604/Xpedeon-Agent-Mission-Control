@@ -49,8 +49,10 @@ builder.Services.AddScoped<RateLimitingService>();
 builder.Services.AddScoped<TokenBudgetEnforcementService>();
 builder.Services.AddScoped<AlertNotificationService>();
 builder.Services.AddScoped<ResilienceService>();
+builder.Services.AddScoped<ObservabilityService>();
 builder.Services.AddHostedService<BackgroundHealthCheckService>();
 builder.Services.AddHostedService<BackgroundAlertProcessorService>();
+builder.Services.AddHostedService<BackgroundMetricsService>();
 builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddRazorComponents()
@@ -160,6 +162,9 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 
+// Correlation ID middleware (for distributed tracing)
+app.UseCorrelationId();
+
 // Validation middleware for request size and JSON validation
 app.UseValidationMiddleware();
 
@@ -217,6 +222,17 @@ app.MapGet("/health/detailed", async (HttpContext context, HealthCheckService he
 .WithOpenApi()
 .AllowAnonymous()
 .WithSummary("Get detailed system health with component breakdown");
+
+// Prometheus metrics endpoint
+app.MapGet("/metrics", async (ObservabilityService observabilityService) =>
+{
+    var metrics = await observabilityService.GetPrometheusMetricsAsync();
+    return Results.Text(metrics, "text/plain; version=0.0.4");
+})
+.WithName("GetMetrics")
+.WithOpenApi()
+.AllowAnonymous()
+.WithSummary("Get Prometheus-format metrics");
 
 // SignalR hub endpoint
 app.MapHub<AgentHub>("/hubs/agent");
