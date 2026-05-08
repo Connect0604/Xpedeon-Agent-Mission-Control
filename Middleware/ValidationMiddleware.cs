@@ -1,7 +1,4 @@
-using System.Text;
 using System.Text.Json;
-using Microsoft.IO;
-using XpedeonAgentMissionControl.Services;
 
 namespace XpedeonAgentMissionControl.Middleware;
 
@@ -15,7 +12,6 @@ public class ValidationMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly ILogger<ValidationMiddleware> _logger;
-    private readonly RecyclableMemoryStreamManager _memoryStreamManager;
 
     // Configuration
     private const int MaxRequestSizeBytes = 10 * 1024 * 1024; // 10 MB
@@ -26,7 +22,6 @@ public class ValidationMiddleware
     {
         _next = next;
         _logger = logger;
-        _memoryStreamManager = new RecyclableMemoryStreamManager();
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -107,8 +102,11 @@ public class ValidationMiddleware
     {
         try
         {
-            // Read body into memory stream (without consuming the original stream)
-            using (var memoryStream = _memoryStreamManager.GetStream())
+            // Enable buffering so the body can be read here and by downstream middleware/endpoints.
+            request.EnableBuffering();
+            request.Body.Position = 0;
+
+            using (var memoryStream = new MemoryStream())
             {
                 await request.Body.CopyToAsync(memoryStream);
                 memoryStream.Seek(0, SeekOrigin.Begin);
@@ -135,7 +133,6 @@ public class ValidationMiddleware
                 // Try to parse JSON
                 try
                 {
-                    var options = new JsonSerializerOptions { MaxDepth = MaxJsonDepth };
                     memoryStream.Seek(0, SeekOrigin.Begin);
                     using (var reader = new StreamReader(memoryStream))
                     {
@@ -160,9 +157,8 @@ public class ValidationMiddleware
                     return false;
                 }
 
-                // Reset stream for next middleware
-                memoryStream.Seek(0, SeekOrigin.Begin);
-                request.Body = memoryStream;
+                // Reset the original request stream for the next middleware/endpoint.
+                request.Body.Position = 0;
             }
 
             return true;

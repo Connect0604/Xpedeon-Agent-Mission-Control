@@ -1,7 +1,9 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using XpedeonAgentMissionControl.Configuration;
 using XpedeonAgentMissionControl.Data;
 using XpedeonAgentMissionControl.Hubs;
+using XpedeonAgentMissionControl.Middleware;
 using XpedeonAgentMissionControl.Services;
 
 var builder = WebApplication.CreateBuilder(args);
