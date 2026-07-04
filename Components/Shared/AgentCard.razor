@@ -1,4 +1,5 @@
 @* Agent summary card for the grid view *@
+@inject TimeDisplayService TimeDisplay
 
 <NavLink class="@($"agent-card agent-card--crew s-{StatusClass}")" href="@($"/agents/{Agent.Id}")">
     <div class="agent-card-grid">
@@ -24,7 +25,7 @@
 
         <div class="agent-mission">
             <div class="agent-mission-kicker">Current mission</div>
-            <div class="agent-mission-text">@Crew.Mission</div>
+            <div class="agent-mission-text">@MissionText</div>
             <div class="agent-mission-context">@Crew.MissionContext</div>
         </div>
 
@@ -95,6 +96,7 @@
     [Parameter, EditorRequired] public Agent Agent { get; set; } = null!;
 
     private AgentCrewProfile Crew => AgentCrewPresenter.Build(Agent);
+    private string MissionText => TimeDisplay.NormalizeScheduledRunLabel(Crew.Mission);
 
     private string StatusClass => Agent.Status switch
     {

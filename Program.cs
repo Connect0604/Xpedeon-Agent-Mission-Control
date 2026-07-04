@@ -12,10 +12,16 @@ builder.Configuration.AddJsonFile("database.config.json", optional: false, reloa
 var databaseConfig = builder.Configuration
     .Get<DatabaseConfig>() ?? new DatabaseConfig();
 builder.Services.AddSingleton(databaseConfig);
+var resolvedDatabaseMode = DatabaseConnectionModeResolver.Resolve(databaseConfig, builder.Environment.ContentRootPath);
+builder.Services.AddSingleton(resolvedDatabaseMode);
 var hermesOpenClawConfig = builder.Configuration
     .GetSection("HermesOpenClaw")
     .Get<HermesOpenClawConfig>() ?? new HermesOpenClawConfig();
 builder.Services.AddSingleton(hermesOpenClawConfig);
+builder.Services.Configure<DomainPresentationOptions>(
+    builder.Configuration.GetSection(DomainPresentationOptions.SectionName));
+builder.Services.Configure<TimeDisplayOptions>(
+    builder.Configuration.GetSection(TimeDisplayOptions.SectionName));
 
 // Data Protection configuration
 var dataProtectionConfig = builder.Configuration
@@ -53,11 +59,10 @@ builder.Services.AddSignalR();
 
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
 {
-    var provider = (databaseConfig.Provider ?? "SQLite").Trim();
-    if (provider.Equals("SqlServer", StringComparison.OrdinalIgnoreCase))
+    if (resolvedDatabaseMode.Provider.Equals("SqlServer", StringComparison.OrdinalIgnoreCase))
     {
         options.UseSqlServer(
-            BuildSqlServerConnectionString(databaseConfig),
+            resolvedDatabaseMode.ConnectionString,
             sql => sql.EnableRetryOnFailure(
                 maxRetryCount: 5,
                 maxRetryDelay: TimeSpan.FromSeconds(10),
@@ -65,20 +70,14 @@ builder.Services.AddDbContextFactory<AppDbContext>(options =>
     }
     else
     {
-        var sqlitePath = databaseConfig.FilePath;
-        if (string.IsNullOrWhiteSpace(sqlitePath))
-            sqlitePath = "xpedeon.db";
-
-        if (!Path.IsPathRooted(sqlitePath))
-            sqlitePath = Path.Combine(builder.Environment.ContentRootPath, sqlitePath);
-
-        options.UseSqlite($"Data Source={sqlitePath}");
+        options.UseSqlite(resolvedDatabaseMode.ConnectionString);
     }
 });
 
 // Core services
 builder.Services.AddScoped<AgentService>();
 builder.Services.AddScoped<TaskService>();
+builder.Services.AddScoped<AgentMemoryCaptureService>();
 builder.Services.AddScoped<LLMProviderService>();
 builder.Services.AddScoped<TemplateService>();
 builder.Services.AddScoped<ApiKeyService>();
@@ -110,11 +109,16 @@ builder.Services.AddScoped<LogService>();
 builder.Services.AddScoped<TaskExecutionEventService>();
 builder.Services.AddSingleton<RealtimeService>();
 builder.Services.AddSingleton<MockDataService>(); // kept for sim feed
+builder.Services.AddSingleton<DomainPresentationService>();
+builder.Services.AddSingleton<TimeDisplayService>();
 
 builder.Services.AddHttpClient();
 
 var app = builder.Build();
 
+if (!string.IsNullOrWhiteSpace(resolvedDatabaseMode.StartupMessage))
+{
+    Console.WriteLine($"[Database] {resolvedDatabaseMode.StartupMessage}");
 // Apply EF Core migrations on startup
 try
 {
@@ -164,32 +168,3 @@ app.MapRazorComponents<XpedeonAgentMissionControl.Components.App>()
 app.MapHub<AgentHub>("/hubs/agent");
 
 app.Run();
-
-static string BuildSqlServerConnectionString(DatabaseConfig config)
-{
-    if (string.IsNullOrWhiteSpace(config.Server))
-        throw new InvalidOperationException("Database server is required for SqlServer provider.");
-
-    if (string.IsNullOrWhiteSpace(config.Database))
-        throw new InvalidOperationException("Database name is required for SqlServer provider.");
-
-    var parts = new List<string>
-    {
-        $"Server={config.Server}",
-        $"Database={config.Database}",
-        $"TrustServerCertificate={(config.TrustServerCertificate ? "True" : "False")}",
-        "Connect Timeout=30"
-    };
-
-    if (config.IntegratedSecurity)
-    {
-        parts.Add("Integrated Security=True");
-    }
-    else
-    {
-        parts.Add($"User Id={config.UserId}");
-        parts.Add($"Password={config.Password}");
-    }
-
-    return string.Join(";", parts);
-}

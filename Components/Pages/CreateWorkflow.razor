@@ -5,13 +5,14 @@
 @inject AgentService AgentService
 @inject SwarmService SwarmService
 @inject NavigationManager Nav
+@inject DomainPresentationService Domain
 
-<PageTitle>@(isEditMode ? "Edit Workflow" : "Create Workflow") - Xpedeon AMC</PageTitle>
+<PageTitle>@(isEditMode ? $"Edit {Domain.Terms.WorkflowSingular}" : $"Create {Domain.Terms.WorkflowSingular}") - @Domain.ActivePack.ProductName</PageTitle>
 
 <div class="page-header workflow-builder-header">
     <div>
-        <h1 class="page-title">@(isEditMode ? "Edit Workflow" : "Create Workflow")</h1>
-        <p class="page-subtitle">Build a reusable sequence of agent, swarm, and approval stages.</p>
+        <h1 class="page-title">@(isEditMode ? $"Edit {Domain.Terms.WorkflowSingular}" : $"Create {Domain.Terms.WorkflowSingular}")</h1>
+        <p class="page-subtitle">Build a reusable sequence of @Domain.Terms.AgentSingular.ToLowerInvariant(), @Domain.Terms.SwarmSingular.ToLowerInvariant(), and approval stages.</p>
     </div>
     <button class="btn btn-ghost" @onclick='() => Nav.NavigateTo("/workflows")'>
         <i class="bi bi-arrow-left"></i> Back
@@ -21,9 +22,9 @@
 <div class="workflow-builder-shell">
     <aside class="workflow-builder-rail">
         <div class="card card-pad workflow-rail-card">
-            <div class="workflow-kicker">Workflow Blueprint</div>
+            <div class="workflow-kicker">@Domain.Terms.WorkflowSingular Blueprint</div>
             <h3 class="workflow-rail-title">Design the flow before the run.</h3>
-            <p class="workflow-rail-copy">Compose reusable stages using your existing agents and swarms, then control how the workflow pauses, recovers, and hands off context.</p>
+            <p class="workflow-rail-copy">Compose reusable stages using your existing @Domain.Terms.AgentPlural.ToLowerInvariant() and @Domain.Terms.SwarmPlural.ToLowerInvariant(), then control how the @Domain.Terms.WorkflowSingular.ToLowerInvariant() pauses, recovers, and hands off context.</p>
 
             <div class="workflow-rail-metrics">
                 <div class="workflow-rail-metric">
@@ -60,7 +61,7 @@
             <div class="workflow-section-head">
                 <div>
                     <div class="workflow-kicker">Foundation</div>
-                    <h3 class="workflow-section-title">Workflow basics</h3>
+                    <h3 class="workflow-section-title">@Domain.Terms.WorkflowSingular basics</h3>
                 </div>
                 <span class="provider-state @(workflow.IsActive ? "success" : "idle")">
                     @(workflow.IsActive ? "Ready to publish" : "Draft")
@@ -69,7 +70,7 @@
 
             <div class="form-row">
                 <div class="form-group">
-                    <label class="form-label">Workflow Name <span class="text-error">*</span></label>
+                    <label class="form-label">@Domain.Terms.WorkflowSingular Name <span class="text-error">*</span></label>
                     <input class="form-input" @bind="workflow.Name" placeholder="e.g. Invoice review and approval" />
                 </div>
                 <div class="form-group">
@@ -85,7 +86,7 @@
 
             <label class="form-check workflow-inline-check">
                 <input type="checkbox" @bind="workflow.IsActive" />
-                <span>Workflow is active and available for execution</span>
+                <span>@Domain.Terms.WorkflowSingular is active and available for execution</span>
             </label>
         </section>
 
@@ -93,7 +94,7 @@
             <div class="workflow-section-head">
                 <div>
                     <div class="workflow-kicker">Composition</div>
-                    <h3 class="workflow-section-title">Workflow stages</h3>
+                    <h3 class="workflow-section-title">@Domain.Terms.WorkflowSingular stages</h3>
                 </div>
                 <button class="btn btn-primary btn-sm" @onclick="AddStep">
                     <i class="bi bi-plus-lg"></i> Add Stage
@@ -105,7 +106,7 @@
                 <div class="workflow-empty">
                     <div class="empty-icon"><i class="bi bi-diagram-2"></i></div>
                     <div class="empty-title">No stages yet</div>
-                    <div class="empty-desc">Add an agent stage, a swarm stage, or an approval checkpoint to begin shaping the workflow.</div>
+                    <div class="empty-desc">Add a @Domain.Terms.AgentSingular.ToLowerInvariant() stage, a @Domain.Terms.SwarmSingular.ToLowerInvariant() stage, or an approval checkpoint to begin shaping the @Domain.Terms.WorkflowSingular.ToLowerInvariant().</div>
                 </div>
             }
             else
@@ -244,7 +245,7 @@
             <button class="btn btn-ghost" @onclick='() => Nav.NavigateTo("/workflows")'>Cancel</button>
             <button class="btn btn-primary ml-auto" @onclick="SaveAsync" disabled="@isSaving">
                 @if (isSaving) { <span class="spinner"></span> }
-                <i class="bi bi-check-lg"></i> @(isSaving ? "Saving..." : (isEditMode ? "Save Workflow" : "Create Workflow"))
+                <i class="bi bi-check-lg"></i> @(isSaving ? "Saving..." : (isEditMode ? $"Save {Domain.Terms.WorkflowSingular}" : $"Create {Domain.Terms.WorkflowSingular}"))
             </button>
         </div>
     </div>

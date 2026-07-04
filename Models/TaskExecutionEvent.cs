@@ -8,6 +8,7 @@ public enum TaskExecutionEventType
     TaskCancelled,
     TaskCompleted,
     TaskFailed,
+    TaskWarning,
     PromptBuilt,
     SkillsApplied,
     MCPServersAttached,

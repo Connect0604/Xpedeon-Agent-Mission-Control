@@ -16,6 +16,7 @@ public class TaskService
     private readonly DynamicSpawnService _spawn;
     private readonly LocalAutomationOrchestrator _localAutomation;
     private readonly LocalAutomationResponseFormatter _localAutomationFormatter;
+    private readonly AgentMemoryCaptureService _memoryCapture;
     private readonly RealtimeService _realtime;
     private readonly TaskExecutionEventService _events;
     private static readonly ConcurrentDictionary<string, CancellationTokenSource> TaskCancellation = new();
@@ -27,6 +28,7 @@ public class TaskService
         DynamicSpawnService spawn,
         LocalAutomationOrchestrator localAutomation,
         LocalAutomationResponseFormatter localAutomationFormatter,
+        AgentMemoryCaptureService memoryCapture,
         RealtimeService realtime,
         TaskExecutionEventService events)
     {
@@ -36,6 +38,7 @@ public class TaskService
         _spawn = spawn;
         _localAutomation = localAutomation;
         _localAutomationFormatter = localAutomationFormatter;
+        _memoryCapture = memoryCapture;
         _realtime = realtime;
         _events = events;
     }
@@ -744,6 +747,7 @@ public class TaskService
                     });
 
                 await db.SaveChangesAsync();
+                await TryCaptureCompletedTaskMemoriesAsync(localAgentRecord ?? agent, task);
                 _realtime.NotifyTaskCompleted(new TaskCompletedNotification(
                     task.Id, task.AgentId, task.AgentName, task.Name, task.Status));
                 await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
@@ -859,11 +863,30 @@ public class TaskService
         }
 
         await db.SaveChangesAsync();
+        if (task.Status == AgentTaskStatus.Completed)
+            await TryCaptureCompletedTaskMemoriesAsync(agent, task);
         _realtime.NotifyTaskCompleted(new TaskCompletedNotification(
             task.Id, task.AgentId, task.AgentName, task.Name, task.Status));
         await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
         await _realtime.AgentUpdatedAsync(agent.Id);
         await _realtime.DashboardRefreshAsync();
+    }
+
+    private async Task TryCaptureCompletedTaskMemoriesAsync(Agent agent, AgentTask task)
+    {
+        try
+        {
+            await _memoryCapture.CaptureCompletedTaskMemoriesAsync(agent, task);
+        }
+        catch (Exception ex)
+        {
+            await _events.LogAsync(
+                task.Id,
+                task.AgentId,
+                TaskExecutionEventType.TaskWarning,
+                "Task completed, but memory capture failed.",
+                new { ex.Message });
+        }
     }
 
     private async Task DispatchToHermesAsync(string taskId, Agent agent, CancellationToken cancellationToken)

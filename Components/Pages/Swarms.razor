@@ -3,16 +3,17 @@
 @inject SwarmService SwarmService
 @inject LLMProviderService ProviderService
 @inject NavigationManager Nav
+@inject DomainPresentationService Domain
 
-<PageTitle>Swarms — Xpedeon AMC</PageTitle>
+<PageTitle>@Domain.Terms.SwarmPlural - @Domain.ActivePack.ProductName</PageTitle>
 
 <div class="page-header">
     <div>
-        <h1 class="page-title">Agent Swarms</h1>
-        <p class="page-subtitle">Coordinate groups of agents with shared strategies and memory</p>
+        <h1 class="page-title">@Domain.Terms.SwarmPlural</h1>
+        <p class="page-subtitle">Coordinate groups of @Domain.Terms.AgentPlural.ToLowerInvariant() with shared strategies and memory.</p>
     </div>
     <button class="btn btn-primary" @onclick="OpenCreate">
-        <i class="bi bi-diagram-3"></i> New Swarm
+        <i class="bi bi-diagram-3"></i> New @Domain.Terms.SwarmSingular
     </button>
 </div>
 
@@ -20,10 +21,10 @@
 {
     <div class="card card-pad empty-state">
         <div class="empty-icon"><i class="bi bi-diagram-3"></i></div>
-        <div class="empty-title">No swarms yet</div>
-        <div class="empty-desc">Create a swarm to coordinate multiple agents on the same task using parallel, sequential, or voting strategies.</div>
+        <div class="empty-title">No @Domain.Terms.SwarmPlural.ToLowerInvariant() yet</div>
+        <div class="empty-desc">Create a @Domain.Terms.SwarmSingular.ToLowerInvariant() to coordinate multiple @Domain.Terms.AgentPlural.ToLowerInvariant() on the same @Domain.Terms.TaskSingular.ToLowerInvariant() using parallel, sequential, or voting strategies.</div>
         <button class="btn btn-primary mt-4" @onclick="OpenCreate">
-            <i class="bi bi-plus-lg"></i> Create your first swarm
+            <i class="bi bi-plus-lg"></i> Create your first @Domain.Terms.SwarmSingular.ToLowerInvariant()
         </button>
     </div>
 }

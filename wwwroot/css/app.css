@@ -2007,6 +2007,12 @@ body::before {
     gap: var(--s3);
 }
 
+.outputs-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s3);
+}
+
 .outputs-history-card {
     display: flex;
     flex-direction: column;
@@ -2024,6 +2030,20 @@ body::before {
 .outputs-history-card:hover {
     border-color: var(--border-default);
     transform: translateY(-1px);
+}
+
+.outputs-history-card--list {
+    min-height: 0;
+    padding: 16px 18px;
+}
+
+.outputs-history-card--list .outputs-history-card__preview {
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+}
+
+.outputs-history-card--list .outputs-history-card__meta {
+    margin-top: var(--s2);
 }
 
 .outputs-history-card--selected {

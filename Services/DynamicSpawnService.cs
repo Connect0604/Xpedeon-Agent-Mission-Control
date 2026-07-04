@@ -19,6 +19,7 @@ public class DynamicSpawnService
     private readonly ILogger<DynamicSpawnService> _logger;
     private readonly RealtimeService _realtime;
     private readonly TaskExecutionEventService _events;
+    private readonly AgentMemoryCaptureService _memoryCapture;
 
     public DynamicSpawnService(
         IDbContextFactory<AppDbContext> factory,
@@ -26,7 +27,8 @@ public class DynamicSpawnService
         IServiceProvider services,
         ILogger<DynamicSpawnService> logger,
         RealtimeService realtime,
-        TaskExecutionEventService events)
+        TaskExecutionEventService events,
+        AgentMemoryCaptureService memoryCapture)
     {
         _factory = factory;
         _llm = llm;
@@ -34,6 +36,7 @@ public class DynamicSpawnService
         _logger = logger;
         _realtime = realtime;
         _events = events;
+        _memoryCapture = memoryCapture;
     }
 
     // ── Entry point called from TaskService ──────────────────────────
@@ -185,6 +188,7 @@ public class DynamicSpawnService
             });
 
             await db.SaveChangesAsync();
+            await TryCaptureCompletedTaskMemoriesAsync(agentRecord ?? parentAgent, parentTask);
             await _realtime.TaskUpdatedAsync(parentTask.Id, parentTask.AgentId);
             await _realtime.AgentUpdatedAsync(parentAgent.Id);
             await _realtime.DashboardRefreshAsync();
@@ -349,7 +353,11 @@ Do not include any text outside the JSON array.";
             StartedAt      = DateTime.UtcNow,
             LastSeen       = DateTime.UtcNow,
             TimeoutSeconds = parent.TimeoutSeconds,
-            MaxRetries     = parent.MaxRetries
+            MaxRetries     = parent.MaxRetries,
+            ShortTermMemoryEnabled = parent.ShortTermMemoryEnabled,
+            LongTermMemoryEnabled = parent.LongTermMemoryEnabled,
+            ShareMemoryWithSwarm = parent.ShareMemoryWithSwarm,
+            SwarmId = parent.SwarmId
         };
 
         db.Agents.Add(child);
@@ -444,6 +452,10 @@ Do not include any text outside the JSON array.";
                 "Child task completed.",
                 new { result.TotalTokens, result.CostUSD, result.ModelUsed },
                 relatedTaskId: task.SpawnParentTaskId);
+            await db.SaveChangesAsync();
+            await TryCaptureCompletedTaskMemoriesAsync(agentRecord ?? agent, task);
+            await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
+            return;
         }
         catch (OperationCanceledException)
         {
@@ -473,6 +485,24 @@ Do not include any text outside the JSON array.";
 
         await db.SaveChangesAsync();
         await _realtime.TaskUpdatedAsync(task.Id, task.AgentId);
+    }
+
+    private async Task TryCaptureCompletedTaskMemoriesAsync(Agent agent, AgentTask task)
+    {
+        try
+        {
+            await _memoryCapture.CaptureCompletedTaskMemoriesAsync(agent, task);
+        }
+        catch (Exception ex)
+        {
+            await _events.LogAsync(
+                task.Id,
+                task.AgentId,
+                TaskExecutionEventType.TaskWarning,
+                "Spawn completed, but memory capture failed.",
+                new { ex.Message },
+                relatedTaskId: task.SpawnParentTaskId);
+        }
     }
 
     // ── Wait + Aggregate ─────────────────────────────────────────────

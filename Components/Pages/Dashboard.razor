@@ -9,24 +9,25 @@
 @inject LLMProviderService ProviderService
 @inject SwarmService SwarmService
 @inject NavigationManager Nav
+@inject DomainPresentationService Domain
 
-<PageTitle>Dashboard - Xpedeon AMC</PageTitle>
+<PageTitle>@Domain.ResolvePageTitle("/") - @Domain.ActivePack.ProductName</PageTitle>
 
 <div class="page-header dashboard-hero">
     <div>
-        <div class="dashboard-kicker">Xpedeon Aura Workspace</div>
-        <h1 class="page-title">Mission Control</h1>
-        <p class="page-subtitle">Guide operations, supervise agents, and review live execution from a calmer command surface.</p>
+        <div class="dashboard-kicker">@Domain.ActivePack.ProductTagline</div>
+        <h1 class="page-title">@Domain.ResolvePageTitle("/")</h1>
+        <p class="page-subtitle">Guide operations, supervise @Domain.Terms.AgentPlural.ToLowerInvariant(), and review live execution from a calmer command surface.</p>
     </div>
     <div class="flex items-center gap-3">
         <button class="btn btn-primary btn-sm" @onclick='() => Nav.NavigateTo("/agents/create")'>
-            <i class="bi bi-plus-lg"></i> New Agent
+            <i class="bi bi-plus-lg"></i> @Domain.Terms.AgentCreateAction
         </button>
     </div>
 </div>
 
 <div class="g-4 mb-6 dashboard-metrics">
-    <MetricCard Title="Total Agents" Value="@summary.TotalAgents.ToString()"
+    <MetricCard Title="@($"Total {Domain.Terms.AgentPlural}")" Value="@summary.TotalAgents.ToString()"
                 Icon="bi-robot" Variant="accent"
                 Sub="@($"{summary.ActiveAgents} active - {summary.IdleAgents} idle")" />
 
@@ -34,7 +35,7 @@
                 Icon="bi-activity" Variant="success"
                 Sub="@($"{summary.WarningAgents} warning - {summary.ErrorAgents} error")" />
 
-    <MetricCard Title="Tasks Today" Value="@summary.TotalTasksToday.ToString()"
+    <MetricCard Title="@($"{Domain.Terms.TaskPlural} Today")" Value="@summary.TotalTasksToday.ToString()"
                 Icon="bi-check2-circle" Variant="accent"
                 Sub="@($"{summary.RunningTasks} running - {summary.QueuedTasks} queued")" />
 
@@ -69,11 +70,11 @@
 <div class="dash-layout">
     <div>
         <div class="section-head">
-            <i class="bi bi-diagram-3"></i> Task Pipeline
+        <i class="bi bi-diagram-3"></i> @($"{Domain.Terms.TaskSingular} Pipeline")
             <span style="margin-left:auto;font-size:11px;font-weight:400;color:var(--txt-muted);">
                 last @allTasks.Count tracked runs
             </span>
-            <button class="mini-link" @onclick='() => Nav.NavigateTo("/tasks")'>Open Tasks</button>
+            <button class="mini-link" @onclick='() => Nav.NavigateTo("/tasks")'>Open @Domain.Terms.TaskPlural</button>
         </div>
         <div class="pipeline-grid">
             @foreach (var stage in pipelineStages)
@@ -90,7 +91,7 @@
         </div>
 
         <div class="section-head mt-6">
-            <i class="bi bi-play-circle"></i> Active Tasks
+            <i class="bi bi-play-circle"></i> Active @Domain.Terms.TaskPlural
             @if (runningTasks.Any())
             {
                 <span class="badge badge-accent ml-2">@runningTasks.Count</span>
@@ -98,14 +99,14 @@
             <span style="margin-left:auto;font-size:11px;font-weight:400;color:var(--txt-muted);">
                 @RunningTaskSummaryLabel
             </span>
-            <button class="mini-link" @onclick='() => Nav.NavigateTo("/tasks")'>Open Tasks</button>
+            <button class="mini-link" @onclick='() => Nav.NavigateTo("/tasks")'>Open @Domain.Terms.TaskPlural</button>
         </div>
         <div class="card card-pad">
             @if (!runningTasks.Any())
             {
                 <div class="empty-state running-tasks-empty">
                     <div class="empty-icon" style="font-size:28px;"><i class="bi bi-check2-all"></i></div>
-                    <div class="empty-title" style="font-size:14px;">No tasks running</div>
+                    <div class="empty-title" style="font-size:14px;">No @Domain.Terms.TaskPlural.ToLowerInvariant() running</div>
                     <div class="empty-desc">The queue is clear right now.</div>
                 </div>
             }
@@ -172,19 +173,19 @@
         </div>
 
         <div class="section-head mt-6">
-            <i class="bi bi-broadcast"></i> Agent Fleet
+            <i class="bi bi-broadcast"></i> @Domain.Terms.AgentPlural
             <span style="margin-left:auto;font-size:11px;font-weight:400;color:var(--txt-muted);">
-                @fleetWatchAgents.Count agents in focus
+                @fleetWatchAgents.Count @Domain.Terms.AgentPlural.ToLowerInvariant() in focus
             </span>
-            <button class="mini-link" @onclick='() => Nav.NavigateTo("/agents")'>Open Agents</button>
+            <button class="mini-link" @onclick='() => Nav.NavigateTo("/agents")'>Open @Domain.Terms.AgentPlural</button>
         </div>
 
         @if (!fleetWatchAgents.Any())
         {
             <div class="card card-pad empty-state">
                 <div class="empty-icon"><i class="bi bi-robot"></i></div>
-                <div class="empty-title">Fleet is calm</div>
-                <div class="empty-desc">No agents currently need attention beyond the live task board.</div>
+                <div class="empty-title">@Domain.Terms.AgentPlural are steady</div>
+                <div class="empty-desc">No @Domain.Terms.AgentPlural.ToLowerInvariant() currently need attention beyond the live @Domain.Terms.TaskSingular.ToLowerInvariant() board.</div>
             </div>
         }
         else

@@ -61,14 +61,18 @@ public sealed class LocalAutomationResponseFormatter
 
     private static string? TryFormatCapabilitySuccess(LocalOrchestrationExecutionResult result)
     {
-        if (string.IsNullOrWhiteSpace(result.LocalCapabilityExecutionJson))
+        var rawCapabilityOutput = string.IsNullOrWhiteSpace(result.LocalCapabilityExecutionJson)
+            ? result.Output
+            : result.LocalCapabilityExecutionJson;
+
+        if (string.IsNullOrWhiteSpace(rawCapabilityOutput))
         {
             return NormalizeMessage(result.Message);
         }
 
         try
         {
-            using var document = JsonDocument.Parse(result.LocalCapabilityExecutionJson);
+            using var document = JsonDocument.Parse(rawCapabilityOutput);
             var root = document.RootElement;
 
             if (root.ValueKind == JsonValueKind.Number)
@@ -96,6 +100,33 @@ public sealed class LocalAutomationResponseFormatter
             if (root.ValueKind != JsonValueKind.Object)
             {
                 return NormalizeMessage(result.Message);
+            }
+
+            if (root.TryGetProperty("message", out var messageElement) && messageElement.ValueKind == JsonValueKind.String)
+            {
+                var message = messageElement.GetString();
+                if (!string.IsNullOrWhiteSpace(message))
+                {
+                    return message;
+                }
+            }
+
+            if (root.TryGetProperty("output", out var outputElement) && outputElement.ValueKind == JsonValueKind.String)
+            {
+                var outputText = outputElement.GetString();
+                if (!string.IsNullOrWhiteSpace(outputText))
+                {
+                    return outputText;
+                }
+            }
+
+            if (root.TryGetProperty("content", out var contentElement) && contentElement.ValueKind == JsonValueKind.String)
+            {
+                var contentText = contentElement.GetString();
+                if (!string.IsNullOrWhiteSpace(contentText))
+                {
+                    return contentText;
+                }
             }
 
             if (root.TryGetProperty("path", out var pathElement) && pathElement.ValueKind == JsonValueKind.String)
@@ -130,10 +161,17 @@ public sealed class LocalAutomationResponseFormatter
             {
                 return $"Count result: {count}";
             }
+
+            // Keep object output visible instead of falling back to generic capability status text.
+            return root.GetRawText();
         }
         catch (JsonException)
         {
-            // Fall through to message normalization.
+            // Non-JSON output (common for PowerShell capability scripts).
+            if (!string.IsNullOrWhiteSpace(rawCapabilityOutput))
+            {
+                return rawCapabilityOutput;
+            }
         }
 
         return NormalizeMessage(result.Message);
@@ -167,11 +205,24 @@ public sealed class LocalAutomationResponseFormatter
             return null;
         }
 
-        return message
+        var normalized = message
             .Replace("Created directory", "Created folder", StringComparison.OrdinalIgnoreCase)
-            .Replace("Wrote text file", "Created file", StringComparison.OrdinalIgnoreCase)
-            .Replace("Created folder '", "Created folder: ", StringComparison.OrdinalIgnoreCase)
-            .Replace("Created file '", "Created file: ", StringComparison.OrdinalIgnoreCase)
-            .Replace("'.", string.Empty, StringComparison.Ordinal);
+            .Replace("Wrote text file", "Created file", StringComparison.OrdinalIgnoreCase);
+
+        if (normalized.StartsWith("Created folder '", StringComparison.OrdinalIgnoreCase) &&
+            normalized.EndsWith("'.", StringComparison.Ordinal))
+        {
+            var path = normalized["Created folder '".Length..^2];
+            return $"Created folder: {path}";
+        }
+
+        if (normalized.StartsWith("Created file '", StringComparison.OrdinalIgnoreCase) &&
+            normalized.EndsWith("'.", StringComparison.Ordinal))
+        {
+            var path = normalized["Created file '".Length..^2];
+            return $"Created file: {path}";
+        }
+
+        return normalized;
     }
 }
