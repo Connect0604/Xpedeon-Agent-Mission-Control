@@ -119,6 +119,8 @@ var app = builder.Build();
 if (!string.IsNullOrWhiteSpace(resolvedDatabaseMode.StartupMessage))
 {
     Console.WriteLine($"[Database] {resolvedDatabaseMode.StartupMessage}");
+}
+
 // Apply EF Core migrations on startup
 try
 {
