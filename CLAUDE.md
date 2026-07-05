@@ -40,7 +40,7 @@ Blazor Server (.NET 8) multi-agent orchestration dashboard — "mission control"
 
 ### Data Layer
 - **SQLite or SQL Server** via EF Core with `IDbContextFactory<AppDbContext>` (scoped per operation)
-- Migrations are not used — schema is recreated from models via `EnsureCreated()`
+- EF Core migrations in `Migrations/` (`InitialSchema`, `AddEncryption`); `Program.cs` applies pending migrations on startup via `db.Database.MigrateAsync()`. Tests still use `EnsureCreatedAsync()` against in-memory SQLite.
 - `AppDbContext` takes a `DatabaseConfig` dependency (injected as singleton) to know which schema to use on SQL Server
 
 ### Service Registration (`Program.cs`)
@@ -57,6 +57,7 @@ All services are DI-registered. Key ones:
 - `MockDataService` (Singleton) — simulation feed; seeds UI before real agents/tasks exist; ticks every 2.5s
 - `AgentSchedulerService` (hosted) — Quartz.NET scheduled task execution
 - `RealtimeService` — wraps SignalR hub for push updates
+- `SecretEncryptionService` — encrypts provider API keys/auth tokens at rest; `Program.cs` runs `EncryptUnencryptedSecretsAsync()` on startup to migrate any plaintext secrets
 
 ### Task Execution Flow
 ```
